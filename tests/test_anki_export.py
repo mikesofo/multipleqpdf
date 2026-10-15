@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import io
 import json
+import sqlite3
+import tempfile
 import zipfile
+from pathlib import Path
 
 import fitz
 
@@ -84,3 +87,13 @@ def test_export_apkg_embeds_image_media() -> None:
             if mapped_name == expected_basename:
                 assert archive_key in names
                 assert zf.read(archive_key).startswith(b"\x89PNG")
+
+        db_member = "collection.anki21" if "collection.anki21" in names else "collection.anki2"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "collection.sqlite"
+            db_path.write_bytes(zf.read(db_member))
+            with sqlite3.connect(db_path) as conn:
+                row = conn.execute("SELECT flds FROM notes LIMIT 1").fetchone()
+                assert row is not None
+                note_fields = row[0].split("\x1f")
+                assert note_fields[11] == "Histology Atlas"
