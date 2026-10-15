@@ -23,3 +23,6 @@ alias:
 
 auto-lint: true
 auto-test: false
+
+# Application requirements: always available but never editable.
+read: spec.md
