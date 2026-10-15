@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from .anthropic_client import AnthropicClient
 from .config import QUESTIONS_PER_BATCH
-from .schemas import CoveragePlan, MCQ
+from .schemas import MCQ, CoveragePlan
 from .validators import ValidationResult, filter_valid_mcqs
 
 

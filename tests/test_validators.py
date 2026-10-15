@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pdf2anki.schemas import ImageCrop, MCQ
+from pdf2anki.schemas import MCQ, ImageCrop
 from pdf2anki.validators import filter_valid_mcqs, validate_mcq
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from pdf2anki.schemas import CoveragePlan, ImageCrop, MCQ, MCQBatch, TopicAllocation
+from pdf2anki.schemas import MCQ, CoveragePlan, ImageCrop, MCQBatch, TopicAllocation
 
 
 def test_coverage_plan_minimal() -> None:

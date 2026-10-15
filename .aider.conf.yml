@@ -1,20 +1,14 @@
-# Default workflow: Claude designs; GPT implements the edits.
 model: anthropic/claude-opus-4-8
 architect: true
 
 editor-model: openai/gpt-5.6
 editor-edit-format: editor-diff
 
-# Used for inexpensive commit messages and chat summarisation.
 weak-model: anthropic/claude-haiku-4-5
 
-# Keep repository context focused.
 map-tokens: 2048
-
-# Do not offer to add a broad ".aider*" rule to .gitignore.
 gitignore: false
 
-# Switch roles interactively with /model <alias>.
 alias:
   - "architect:anthropic/claude-opus-4-8"
   - "programmer:openai/gpt-5.6"
@@ -23,6 +17,3 @@ alias:
 
 auto-lint: true
 auto-test: false
-
-# Application requirements: always available but never editable.
-read: spec.md

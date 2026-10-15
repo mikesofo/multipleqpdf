@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from pdf2anki.schemas import CoveragePlan, MCQ, MCQBatch, TopicAllocation
+from pdf2anki.schemas import MCQ, CoveragePlan, MCQBatch, TopicAllocation
 from pdf2anki.workflow import _batches, generate_deck
 
 
