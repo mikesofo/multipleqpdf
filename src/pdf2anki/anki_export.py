@@ -208,7 +208,7 @@ def export_apkg_bytes(
                     img_file.write_bytes(png_bytes)
                     media_paths.append(str(img_file))
 
-            fields = build_note_fields(mcq, deck_title, image_basename=image_basename)
+            fields = build_note_fields(mcq, pdf_title, image_basename=image_basename)
             note_guid = genanki.guid_for(pdf_hash, mcq.id)
             note = genanki.Note(
                 model=model,
