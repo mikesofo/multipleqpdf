@@ -1,10 +1,11 @@
-# Default development pipeline: Claude plans, Gemini edits.
-model: anthropic/claude-opus-4-6
+# Default workflow: Claude designs; GPT implements the edits.
+model: anthropic/claude-opus-4-8
 architect: true
-editor-model: gemini/gemini-2.5-pro
+
+editor-model: openai/gpt-5.6
 editor-edit-format: editor-diff
 
-# Used for commit messages and chat summarisation.
+# Used for inexpensive commit messages and chat summarisation.
 weak-model: anthropic/claude-haiku-4-5
 
 # Keep repository context focused.
@@ -13,13 +14,12 @@ map-tokens: 2048
 # Do not offer to add a broad ".aider*" rule to .gitignore.
 gitignore: false
 
-# Convenient roles to select inside Aider.
+# Switch roles interactively with /model <alias>.
 alias:
-  - "architect:anthropic/claude-opus-4-6"
-  - "programmer:gemini/gemini-2.5-pro"
-  - "grunt:deepseek/deepseek-v4-pro"
-  - "reviewer:openai/gpt-5.4"
+  - "architect:anthropic/claude-opus-4-8"
+  - "programmer:openai/gpt-5.6"
+  - "grunt:deepseek/deepseek-v4-flash"
+  - "reviewer:gemini/gemini-4-argon"
 
-# Run quality checks after edits once the project has them.
 auto-lint: true
 auto-test: false
