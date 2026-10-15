@@ -194,6 +194,7 @@ def _render_editor(
     if delete_index is not None:
         mcqs.pop(delete_index)
         st.session_state["mcqs"] = mcqs
+        st.session_state.pop("apkg_bytes", None)
         st.rerun()
 
     if regen_index is not None and client is not None:
@@ -211,6 +212,7 @@ def _render_editor(
                 )
             mcqs[regen_index] = replacement
             st.session_state["mcqs"] = mcqs
+            st.session_state.pop("apkg_bytes", None)
             st.rerun()
         except Exception as exc:
             st.error(f"Regeneration failed: {exc}")
@@ -240,6 +242,11 @@ def main() -> None:
         min_value=1,
         max_value=MAX_QUESTIONS,
         value=DEFAULT_MAX_QUESTIONS,
+    )
+
+    retain_remote = st.checkbox(
+        "Temporarily retain the uploaded file on Anthropic (not recommended)",
+        value=False,
     )
 
     uploaded = st.file_uploader("Upload a PDF", type=["pdf"])
@@ -294,16 +301,19 @@ def main() -> None:
             st.session_state["rejected"] = list(result.rejected)
             st.session_state["batch_errors"] = list(result.batch_errors)
             st.session_state["pdf_hash"] = pdf_info.pdf_hash
+            st.session_state.pop("apkg_bytes", None)
         except Exception as exc:  # pragma: no cover - UI path
             st.error(f"Generation failed: {exc}")
             return
         finally:
-            if file_id:
+            if file_id and not retain_remote:
                 deleted = client.delete_file(file_id)
                 if not deleted:
                     st.warning(
                         f"Remote file may not have been deleted from Anthropic: {file_id}"
                     )
+            elif file_id and retain_remote:
+                st.info(f"Remote file retained on Anthropic: {file_id}")
 
     if st.session_state.get("pdf_hash") != pdf_info.pdf_hash:
         return
@@ -332,22 +342,27 @@ def main() -> None:
             st.write(f"**{mcq.id}** — {', '.join(validation.errors)}")
 
     if mcqs and all_valid:
-        try:
-            apkg_bytes = export_apkg_bytes(
-                mcqs=mcqs,
-                pdf_bytes=data,
-                pdf_hash=pdf_info.pdf_hash,
-                pdf_title=plan.title if plan and plan.title else uploaded.name,
-            )
+        if st.button("Build Anki deck"):
+            try:
+                apkg_bytes = export_apkg_bytes(
+                    mcqs=mcqs,
+                    pdf_bytes=data,
+                    pdf_hash=pdf_info.pdf_hash,
+                    pdf_title=plan.title if plan and plan.title else uploaded.name,
+                )
+                st.session_state["apkg_bytes"] = apkg_bytes
+            except Exception as exc:
+                st.error(f"Failed to build Anki package: {exc}")
+        apkg_bytes = st.session_state.get("apkg_bytes")
+        if apkg_bytes:
             st.download_button(
                 label="Download Anki Deck (.apkg)",
                 data=apkg_bytes,
                 file_name=f"{uploaded.name.rsplit('.', 1)[0]}.apkg",
                 mime="application/octet-stream",
             )
-        except Exception as exc:
-            st.error(f"Failed to build Anki package: {exc}")
     elif mcqs and not all_valid:
+        st.session_state.pop("apkg_bytes", None)
         st.warning("Fix all validation errors above before exporting the Anki deck.")
 
 

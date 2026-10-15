@@ -115,6 +115,12 @@ class AnthropicClient:
             "source": {"type": "file", "file_id": file_id},
         }
 
+    @retry(
+        retry=retry_if_exception_type(_transient_exceptions() or Exception),
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=1, min=1, max=20),
+        reraise=True,
+    )
     def _parse(
         self,
         *,
