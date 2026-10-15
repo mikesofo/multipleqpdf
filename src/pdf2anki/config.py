@@ -5,9 +5,12 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
 
-load_dotenv()
+    load_dotenv()
+except ModuleNotFoundError:  # pragma: no cover - dotenv optional at runtime
+    pass
 
 # Anthropic PDF limits (see spec.md).
 MAX_PDF_BYTES: int = 32 * 1024 * 1024  # 32 MB per request
