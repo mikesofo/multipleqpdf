@@ -83,15 +83,18 @@ class AnthropicClient:
 
         return cls(Anthropic(api_key=api_key), model)
 
+    def upload_pdf(self, data: bytes, filename: str) -> str:
+        """Validate and upload PDF bytes to the Files API and return the file_id."""
+        validate_pdf(data)
+        return self._upload_validated(data, filename)
+
     @retry(
         retry=retry_if_exception_type(_transient_exceptions() or Exception),
         stop=stop_after_attempt(4),
         wait=wait_exponential(multiplier=1, min=1, max=20),
         reraise=True,
     )
-    def upload_pdf(self, data: bytes, filename: str) -> str:
-        """Validate and upload PDF bytes to the Files API and return the file_id."""
-        validate_pdf(data)
+    def _upload_validated(self, data: bytes, filename: str) -> str:
         result = self._client.beta.files.upload(
             file=(filename, data, "application/pdf"),
         )

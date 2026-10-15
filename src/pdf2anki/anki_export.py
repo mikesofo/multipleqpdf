@@ -188,21 +188,25 @@ def export_apkg_bytes(
         for mcq in mcqs:
             image_basename: str | None = None
             if mcq.image_required and mcq.image_page is not None:
-                png_bytes = render_crop(
-                    pdf_bytes,
-                    mcq.image_page,
-                    mcq.image_crop,
-                    dpi=dpi,
-                )
-                image_basename = media_filename(
-                    pdf_hash,
-                    mcq.image_page,
-                    mcq.id,
-                    mcq.image_crop,
-                )
-                img_file = tmp_path / image_basename
-                img_file.write_bytes(png_bytes)
-                media_paths.append(str(img_file))
+                try:
+                    png_bytes = render_crop(
+                        pdf_bytes,
+                        mcq.image_page,
+                        mcq.image_crop,
+                        dpi=dpi,
+                    )
+                except (ValueError, RuntimeError):
+                    png_bytes = None
+                if png_bytes is not None:
+                    image_basename = media_filename(
+                        pdf_hash,
+                        mcq.image_page,
+                        mcq.id,
+                        mcq.image_crop,
+                    )
+                    img_file = tmp_path / image_basename
+                    img_file.write_bytes(png_bytes)
+                    media_paths.append(str(img_file))
 
             fields = build_note_fields(mcq, deck_title, image_basename=image_basename)
             note_guid = genanki.guid_for(pdf_hash, mcq.id)
@@ -214,7 +218,7 @@ def export_apkg_bytes(
             deck.add_note(note)
 
         package = genanki.Package(deck)
-        package.media_files = media_paths
+        package.media_files = sorted(set(media_paths))
         out_file = tmp_path / "deck.apkg"
         package.write_to_file(str(out_file))
         return out_file.read_bytes()

@@ -38,7 +38,11 @@ def validate_pdf(
     max_pages: int = MAX_PDF_PAGES,
 ) -> PDFInfo:
     """Validate MIME type, size, encryption status, and page count."""
-    if mime_type != ACCEPTED_MIME_TYPE:
+    if mime_type and mime_type not in (
+        ACCEPTED_MIME_TYPE,
+        "application/x-pdf",
+        "application/octet-stream",
+    ):
         raise PDFValidationError("The uploaded file is not a PDF.")
     if not data:
         raise PDFValidationError("The uploaded PDF is empty.")
