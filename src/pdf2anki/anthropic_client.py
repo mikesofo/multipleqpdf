@@ -59,6 +59,25 @@ def _transient_exceptions() -> tuple[type[Exception], ...]:
     return (RateLimitError, APITimeoutError, APIStatusError)
 
 
+_TRANSIENT = _transient_exceptions()
+_RETRY_PREDICATE = retry_if_exception_type(_TRANSIENT) if _TRANSIENT else None
+
+if _RETRY_PREDICATE is None:  # pragma: no cover
+
+    def _retry_decorator(func: Any) -> Any:
+        return func
+
+else:
+
+    def _retry_decorator(func: Any) -> Any:
+        return retry(
+            retry=_RETRY_PREDICATE,
+            stop=stop_after_attempt(4),
+            wait=wait_exponential(multiplier=1, min=1, max=20),
+            reraise=True,
+        )(func)
+
+
 class AnthropicClient:
     """Wraps PDF upload and the two-pass MCQ pipeline.
 
@@ -88,12 +107,7 @@ class AnthropicClient:
         validate_pdf(data)
         return self._upload_validated(data, filename)
 
-    @retry(
-        retry=retry_if_exception_type(_transient_exceptions() or Exception),
-        stop=stop_after_attempt(4),
-        wait=wait_exponential(multiplier=1, min=1, max=20),
-        reraise=True,
-    )
+    @_retry_decorator
     def _upload_validated(self, data: bytes, filename: str) -> str:
         result = self._client.beta.files.upload(
             file=(filename, data, "application/pdf"),
@@ -115,12 +129,7 @@ class AnthropicClient:
             "source": {"type": "file", "file_id": file_id},
         }
 
-    @retry(
-        retry=retry_if_exception_type(_transient_exceptions() or Exception),
-        stop=stop_after_attempt(4),
-        wait=wait_exponential(multiplier=1, min=1, max=20),
-        reraise=True,
-    )
+    @_retry_decorator
     def _parse(
         self,
         *,
