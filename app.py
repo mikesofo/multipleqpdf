@@ -281,10 +281,12 @@ def main() -> None:
             st.error(str(exc))
             return
     else:
-        st.error("No Anthropic API key available. Set it above or in the environment.")
-        return
+        st.info(
+            "No Anthropic API key available. You can still edit existing "
+            "questions and export, but generation and regeneration are disabled."
+        )
 
-    if st.button("Generate MCQs"):
+    if client is not None and st.button("Generate MCQs"):
         file_id: str | None = None
         try:
             with st.spinner("Uploading PDF to Claude..."):

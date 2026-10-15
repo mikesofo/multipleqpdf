@@ -62,20 +62,15 @@ def _transient_exceptions() -> tuple[type[Exception], ...]:
 _TRANSIENT = _transient_exceptions()
 _RETRY_PREDICATE = retry_if_exception_type(_TRANSIENT) if _TRANSIENT else None
 
-if _RETRY_PREDICATE is None:  # pragma: no cover
-
-    def _retry_decorator(func: Any) -> Any:
+def _retry_decorator(func: Any) -> Any:
+    if _RETRY_PREDICATE is None:  # pragma: no cover
         return func
-
-else:
-
-    def _retry_decorator(func: Any) -> Any:
-        return retry(
-            retry=_RETRY_PREDICATE,
-            stop=stop_after_attempt(4),
-            wait=wait_exponential(multiplier=1, min=1, max=20),
-            reraise=True,
-        )(func)
+    return retry(
+        retry=_RETRY_PREDICATE,
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=1, min=1, max=20),
+        reraise=True,
+    )(func)
 
 
 class AnthropicClient:
