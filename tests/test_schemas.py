@@ -69,6 +69,13 @@ def test_image_crop_bounds() -> None:
         ImageCrop(x0=0.0, y0=0.0, x1=1.5, y1=1.0)
 
 
+def test_image_crop_rejects_inverted_or_degenerate_rectangle() -> None:
+    with pytest.raises(ValidationError):
+        ImageCrop(x0=0.8, y0=0.8, x1=0.1, y1=0.1)
+    with pytest.raises(ValidationError):
+        ImageCrop(x0=0.5, y0=0.2, x1=0.5, y1=0.8)
+
+
 def test_mcq_batch_default_empty() -> None:
     batch = MCQBatch()
     assert batch.questions == []

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class TopicAllocation(BaseModel):
@@ -34,6 +34,12 @@ class ImageCrop(BaseModel):
     y0: float = Field(ge=0.0, le=1.0)
     x1: float = Field(ge=0.0, le=1.0)
     y1: float = Field(ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _validate_positive_area(self) -> ImageCrop:
+        if self.x1 <= self.x0 or self.y1 <= self.y0:
+            raise ValueError("ImageCrop requires x1 > x0 and y1 > y0.")
+        return self
 
 
 class MCQ(BaseModel):

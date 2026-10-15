@@ -25,6 +25,7 @@ def test_batches_splits_evenly() -> None:
     assert _batches(25, 10) == [10, 10, 5]
     assert _batches(0, 10) == []
     assert _batches(10, 10) == [10]
+    assert sum(_batches(500, 10)) == 100
 
 
 def test_generate_deck_runs_two_passes() -> None:
@@ -113,3 +114,34 @@ def test_generate_deck_without_allocation_uses_subject() -> None:
     _, kwargs = client.generate_mcqs.call_args
     assert kwargs["topic"] == "Cardiology"
     assert [m.id for m in result.mcqs] == ["q1"]
+
+
+def test_generate_deck_recovers_from_partial_batch_failure_and_dedupes_ids() -> None:
+    plan = CoveragePlan(
+        title="T",
+        subject="S",
+        learner_level="student",
+        question_count=4,
+        allocation=[
+            TopicAllocation(topic="Alpha", question_count=2),
+            TopicAllocation(topic="Beta", question_count=2),
+        ],
+    )
+    client = MagicMock()
+    client.plan_coverage.return_value = plan
+    client.generate_mcqs.side_effect = [
+        MCQBatch(questions=[_mcq("dup", "Alpha"), _mcq("dup", "Alpha")]),
+        RuntimeError("transient failure"),
+    ]
+
+    result = generate_deck(
+        client=client,
+        file_id="f",
+        page_count=10,
+        max_questions=10,
+        batch_size=10,
+    )
+
+    assert len(result.mcqs) == 2
+    assert len({m.id for m in result.mcqs}) == 2
+    assert len(result.batch_errors) == 1

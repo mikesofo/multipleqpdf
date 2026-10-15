@@ -38,6 +38,8 @@ def validate_mcq(mcq: MCQ, page_count: int) -> ValidationResult:
 
     if not mcq.source_pages:
         errors.append("At least one source page is required.")
+    else:
+        mcq.source_pages = sorted(set(mcq.source_pages))
     for page in mcq.source_pages:
         if page < 1 or page > page_count:
             errors.append(f"Source page {page} is out of range (1-{page_count}).")
@@ -49,6 +51,11 @@ def validate_mcq(mcq: MCQ, page_count: int) -> ValidationResult:
             errors.append(
                 f"image_page {mcq.image_page} is out of range (1-{page_count})."
             )
+        if mcq.image_crop is not None and (
+            mcq.image_crop.x1 <= mcq.image_crop.x0
+            or mcq.image_crop.y1 <= mcq.image_crop.y0
+        ):
+            errors.append("image_crop must have positive width and height.")
 
     return ValidationResult(is_valid=not errors, errors=errors)
 

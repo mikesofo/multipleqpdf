@@ -32,6 +32,8 @@ except ModuleNotFoundError:  # pragma: no cover - fallback when tenacity absent
     def wait_exponential(*_args: Any, **_kwargs: Any):  # type: ignore[no-redef]
         return None
 
+from .config import SUPPORTED_MODELS
+from .pdf_media import validate_pdf
 from .prompts import (
     COVERAGE_SYSTEM_PROMPT,
     MCQ_SYSTEM_PROMPT,
@@ -64,6 +66,13 @@ class AnthropicClient:
     """
 
     def __init__(self, client: Anthropic, model: str) -> None:
+        if not model or not (
+            model in SUPPORTED_MODELS or model.startswith("claude-")
+        ):
+            raise AnthropicError(
+                f"Unsupported model '{model}'. Expected a Claude model such as "
+                f"{SUPPORTED_MODELS[0]}."
+            )
         self._client = client
         self._model = model
 
@@ -81,18 +90,20 @@ class AnthropicClient:
         reraise=True,
     )
     def upload_pdf(self, data: bytes, filename: str) -> str:
-        """Upload PDF bytes to the Files API and return the file_id."""
+        """Validate and upload PDF bytes to the Files API and return the file_id."""
+        validate_pdf(data)
         result = self._client.beta.files.upload(
             file=(filename, data, "application/pdf"),
         )
         return result.id
 
-    def delete_file(self, file_id: str) -> None:
-        """Delete a remote file; swallow errors so cleanup never masks results."""
+    def delete_file(self, file_id: str) -> bool:
+        """Delete a remote file; return True on success, False on failure."""
         try:
             self._client.beta.files.delete(file_id)
+            return True
         except Exception:
-            pass
+            return False
 
     def _file_content_block(self, file_id: str) -> dict[str, Any]:
         """Build a document content block that references an uploaded file."""
@@ -108,11 +119,12 @@ class AnthropicClient:
         user_text: str,
         file_id: str,
         schema: type[Any],
+        max_tokens: int = 8192,
     ) -> Any:
         """Call messages.parse with a document block and a response schema."""
         message = self._client.beta.messages.parse(
             model=self._model,
-            max_tokens=8192,
+            max_tokens=max_tokens,
             system=system,
             messages=[
                 {
@@ -145,9 +157,11 @@ class AnthropicClient:
         id_prefix: str,
     ) -> MCQBatch:
         """Run Pass 2 for a single topic batch and return validated MCQs."""
+        scaled_tokens = min(16384, max(2048, 1200 + 800 * max(1, count)))
         return self._parse(
             system=MCQ_SYSTEM_PROMPT,
             user_text=mcq_user_prompt(topic, count, learner_level, id_prefix),
             file_id=file_id,
             schema=MCQBatch,
+            max_tokens=scaled_tokens,
         )

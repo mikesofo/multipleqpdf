@@ -90,3 +90,19 @@ def test_filter_valid_mcqs_splits() -> None:
     valid, rejected = filter_valid_mcqs([good, bad], page_count=10)
     assert [m.id for m in valid] == ["good"]
     assert [m.id for m, _ in rejected] == ["bad"]
+
+
+def test_source_pages_deduplicated_and_sorted() -> None:
+    mcq = _mcq(source_pages=[3, 1, 3, 2])
+    result = validate_mcq(mcq, page_count=10)
+    assert result.is_valid
+    assert mcq.source_pages == [1, 2, 3]
+
+
+def test_image_crop_ignored_when_image_not_required() -> None:
+    mcq = _mcq(
+        image_required=False,
+        image_crop=ImageCrop(x0=0.1, y0=0.1, x1=0.5, y1=0.5),
+    )
+    result = validate_mcq(mcq, page_count=10)
+    assert result.is_valid
