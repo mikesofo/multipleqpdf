@@ -4,12 +4,33 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
+try:
+    from tenacity import (
+        retry,
+        retry_if_exception_type,
+        stop_after_attempt,
+        wait_exponential,
+    )
+except ModuleNotFoundError:  # pragma: no cover - fallback when tenacity absent
+
+    def retry(*_args: Any, **_kwargs: Any):  # type: ignore[no-redef]
+        """No-op decorator used when tenacity is not installed."""
+
+        def _decorator(func):
+            return func
+
+        return _decorator
+
+    def retry_if_exception_type(
+        *_args: Any, **_kwargs: Any
+    ):  # type: ignore[no-redef]
+        return None
+
+    def stop_after_attempt(*_args: Any, **_kwargs: Any):  # type: ignore[no-redef]
+        return None
+
+    def wait_exponential(*_args: Any, **_kwargs: Any):  # type: ignore[no-redef]
+        return None
 
 from .prompts import (
     COVERAGE_SYSTEM_PROMPT,
