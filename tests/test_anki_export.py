@@ -9,7 +9,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-import fitz
+from conftest import make_sample_pdf
 
 from pdf2anki.anki_export import build_note_fields, export_apkg_bytes
 from pdf2anki.pdf_media import compute_pdf_hash, media_filename
@@ -17,11 +17,7 @@ from pdf2anki.schemas import MCQ, ImageCrop
 
 
 def _sample_pdf() -> bytes:
-    doc = fitz.open()
-    page = doc.new_page(width=200, height=200)
-    page.insert_text((20, 40), "Sample figure")
-    page.draw_circle((100, 100), 40, color=(0, 0.5, 0))
-    return doc.tobytes()
+    return make_sample_pdf(pages=1)
 
 
 def test_build_note_fields_escapes_malicious_html() -> None:

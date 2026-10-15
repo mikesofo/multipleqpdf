@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import fitz
 import pytest
+from conftest import make_sample_pdf as _make_pdf
 
 from pdf2anki.pdf_media import (
     PDFValidationError,
@@ -13,21 +13,6 @@ from pdf2anki.pdf_media import (
     validate_pdf,
 )
 from pdf2anki.schemas import ImageCrop
-
-
-def _make_pdf(pages: int = 2, encrypt: bool = False) -> bytes:
-    doc = fitz.open()
-    for i in range(pages):
-        page = doc.new_page(width=200, height=200)
-        page.insert_text((20, 40), f"Page {i + 1} content")
-        page.draw_rect(fitz.Rect(20, 60, 120, 140), color=(1, 0, 0), fill=(0, 0, 1))
-    if encrypt:
-        return doc.tobytes(
-            encryption=fitz.PDF_ENCRYPT_AES_256,
-            owner_pw="owner",
-            user_pw="secret",
-        )
-    return doc.tobytes()
 
 
 def test_validate_pdf_accepts_valid_pdf() -> None:

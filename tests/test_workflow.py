@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from unittest.mock import MagicMock
 
+import pytest
+from conftest import make_sample_pdf
+
+from pdf2anki.anthropic_client import AnthropicClient
+from pdf2anki.config import SUPPORTED_MODELS
 from pdf2anki.schemas import MCQ, CoveragePlan, MCQBatch, TopicAllocation
 from pdf2anki.workflow import _batches, generate_deck
 
@@ -145,3 +151,30 @@ def test_generate_deck_recovers_from_partial_batch_failure_and_dedupes_ids() -> 
     assert len(result.mcqs) == 2
     assert len({m.id for m in result.mcqs}) == 2
     assert len(result.batch_errors) == 1
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not os.environ.get("ANTHROPIC_API_KEY")
+    or os.environ.get("RUN_ANTHROPIC_INTEGRATION") != "1",
+    reason="Set ANTHROPIC_API_KEY and RUN_ANTHROPIC_INTEGRATION=1 to run live API test",
+)
+def test_live_integration_generate_deck() -> None:
+    api_key = os.environ["ANTHROPIC_API_KEY"]
+    client = AnthropicClient.from_api_key(api_key, SUPPORTED_MODELS[-1])
+    pdf_bytes = make_sample_pdf(pages=1)
+    file_id: str | None = None
+    try:
+        file_id = client.upload_pdf(pdf_bytes, "sample.pdf")
+        result = generate_deck(
+            client=client,
+            file_id=file_id,
+            page_count=1,
+            max_questions=1,
+            batch_size=1,
+        )
+        assert result.plan is not None
+        assert len(result.mcqs) >= 1
+    finally:
+        if file_id:
+            assert client.delete_file(file_id)

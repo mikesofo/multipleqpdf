@@ -20,15 +20,20 @@ from pdf2anki.validators import validate_mcq
 from pdf2anki.workflow import generate_deck, regenerate_single_mcq
 
 
-def _parse_pages(raw: str) -> list[int]:
-    """Parse a comma-separated list of 1-based page numbers."""
+def _parse_pages(raw: str) -> tuple[list[int], str | None]:
+    """Parse a comma-separated list of 1-based page numbers, keeping valid integers."""
     pages: list[int] = []
+    bad_tokens: list[str] = []
     for part in raw.split(","):
         token = part.strip()
         if not token:
             continue
-        pages.append(int(token))
-    return sorted(set(pages))
+        try:
+            pages.append(int(token))
+        except ValueError:
+            bad_tokens.append(token)
+    error = "Source pages must be integers." if bad_tokens else None
+    return sorted(set(pages)), error
 
 
 def _render_editor(
@@ -88,12 +93,7 @@ def _render_editor(
                 value=", ".join(str(p) for p in mcq.source_pages),
                 key=f"pages_{mcq.id}_{idx}",
             )
-            try:
-                parsed_pages = _parse_pages(pages_str)
-                pages_parse_error = None
-            except ValueError:
-                parsed_pages = []
-                pages_parse_error = "Source pages must be integers."
+            parsed_pages, pages_parse_error = _parse_pages(pages_str)
 
             image_required = st.checkbox(
                 "Include image on card",
