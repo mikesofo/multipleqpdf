@@ -1,0 +1,12 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.pyc
+*.apkg
+
+.aider.chat.history.md
+.aider.input.history
+.aider.tags.cache.v4/
