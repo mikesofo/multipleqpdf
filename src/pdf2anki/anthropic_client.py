@@ -13,23 +13,23 @@ try:
     )
 except ModuleNotFoundError:  # pragma: no cover - fallback when tenacity absent
 
-    def retry(*_args: Any, **_kwargs: Any):  # type: ignore[no-redef]
+    def retry(*_args: Any, **_kwargs: Any) -> Any:  # type: ignore[no-redef]
         """No-op decorator used when tenacity is not installed."""
 
-        def _decorator(func):
+        def _decorator(func: Any) -> Any:
             return func
 
         return _decorator
 
-    def retry_if_exception_type(
+    def retry_if_exception_type(  # type: ignore[no-redef]
         *_args: Any, **_kwargs: Any
-    ):  # type: ignore[no-redef]
+    ) -> Any:
         return None
 
-    def stop_after_attempt(*_args: Any, **_kwargs: Any):  # type: ignore[no-redef]
+    def stop_after_attempt(*_args: Any, **_kwargs: Any) -> Any:  # type: ignore[no-redef]
         return None
 
-    def wait_exponential(*_args: Any, **_kwargs: Any):  # type: ignore[no-redef]
+    def wait_exponential(*_args: Any, **_kwargs: Any) -> Any:  # type: ignore[no-redef]
         return None
 
 from .config import SUPPORTED_MODELS
