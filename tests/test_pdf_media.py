@@ -9,6 +9,7 @@ from conftest import make_sample_pdf as _make_pdf
 from pdf2anki.pdf_media import (
     PDFValidationError,
     count_page_images,
+    largest_image_crop,
     media_filename,
     render_crop,
     render_page,
@@ -91,3 +92,40 @@ def test_count_page_images_out_of_range_raises() -> None:
     data = _make_pdf(pages=1)
     with pytest.raises(ValueError, match="out of range"):
         count_page_images(data, 5)
+
+
+def test_largest_image_crop_returns_subregion_of_page() -> None:
+    # Image is inserted at Rect(20, 60, 180, 180) on a 200x200 page.
+    data = make_pdf_with_image(image_page_1based=1, pages=1)
+    crop = largest_image_crop(data, 1, margin=0.0)
+    assert crop is not None
+    # Must be a strict sub-region, not the whole page.
+    assert 0.0 <= crop.x0 < crop.x1 <= 1.0
+    assert 0.0 <= crop.y0 < crop.y1 <= 1.0
+    assert crop.x0 > 0.0 or crop.y0 > 0.0 or crop.x1 < 1.0 or crop.y1 < 1.0
+    assert crop.y0 == pytest.approx(0.3, abs=0.02)
+    assert crop.y1 == pytest.approx(0.9, abs=0.02)
+
+
+def test_largest_image_crop_applies_margin_and_clamps() -> None:
+    data = make_pdf_with_image(image_page_1based=1, pages=1)
+    crop = largest_image_crop(data, 1, margin=0.05)
+    assert crop is not None
+    assert 0.0 <= crop.x0 < crop.x1 <= 1.0
+    assert 0.0 <= crop.y0 < crop.y1 <= 1.0
+    # Margin pushes bounds outward versus the no-margin crop.
+    base = largest_image_crop(data, 1, margin=0.0)
+    assert base is not None
+    assert crop.x0 <= base.x0
+    assert crop.y1 >= base.y1
+
+
+def test_largest_image_crop_none_on_text_only_page() -> None:
+    data = _make_pdf(pages=1)
+    assert largest_image_crop(data, 1) is None
+
+
+def test_largest_image_crop_out_of_range_raises() -> None:
+    data = _make_pdf(pages=1)
+    with pytest.raises(ValueError, match="out of range"):
+        largest_image_crop(data, 5)

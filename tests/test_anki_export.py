@@ -12,7 +12,13 @@ from pathlib import Path
 
 from conftest import make_pdf_with_image, make_sample_pdf
 from pdf2anki.anki_export import build_anki_model, build_note_fields, export_apkg_bytes
-from pdf2anki.pdf_media import compute_pdf_hash, media_filename
+from pdf2anki.pdf_media import (
+    compute_pdf_hash,
+    largest_image_crop,
+    media_filename,
+    render_crop,
+    render_page,
+)
 from pdf2anki.schemas import MCQ, ImageCrop
 
 
@@ -165,15 +171,26 @@ def test_export_auto_attaches_when_source_page_has_image_even_if_not_required() 
         pdf_title="Histology Atlas",
     )
 
-    expected_basename = media_filename(pdf_hash, 1, mcq.id, None)
+    auto_crop = largest_image_crop(pdf_bytes, 1)
+    assert auto_crop is not None  # fixture page has a detectable figure region
+    expected_basename = media_filename(pdf_hash, 1, mcq.id, auto_crop)
+    full_page_basename = media_filename(pdf_hash, 1, mcq.id, None)
+    assert expected_basename != full_page_basename
 
     with zipfile.ZipFile(io.BytesIO(apkg_bytes), "r") as zf:
         names = set(zf.namelist())
         media_map = json.loads(zf.read("media").decode("utf-8"))
+        # Exported asset must be the cropped region, not the whole page.
         assert expected_basename in media_map.values()
+        assert full_page_basename not in media_map.values()
         for archive_key, mapped_name in media_map.items():
             if mapped_name == expected_basename:
-                assert zf.read(archive_key).startswith(b"\x89PNG")
+                cropped = zf.read(archive_key)
+                assert cropped.startswith(b"\x89PNG")
+                # Cropped region should be smaller than a full-page render.
+                full_png = render_page(pdf_bytes, 1)
+                region_png = render_crop(pdf_bytes, 1, auto_crop)
+                assert len(region_png) <= len(full_png)
 
         db_member = "collection.anki21" if "collection.anki21" in names else "collection.anki2"
         with tempfile.TemporaryDirectory() as tmpdir:

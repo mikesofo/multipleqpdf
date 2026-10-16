@@ -129,6 +129,71 @@ def count_page_images(
         return count
 
 
+def largest_image_crop(
+    pdf_bytes: bytes,
+    page_number_1based: int,
+    min_dim: int = MIN_IMAGE_DIMENSION,
+    margin: float = 0.03,
+) -> ImageCrop | None:
+    """Return a normalized crop for the largest non-trivial image on a page.
+
+    Inspects embedded raster images and their placement rectangles, selects the
+    one covering the largest page area (ignoring images smaller than ``min_dim``
+    in either source dimension), expands it by ``margin`` on all sides, clamps
+    to the unit square, and returns it as an :class:`ImageCrop`. Returns ``None``
+    when no qualifying image region can be located.
+    """
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        if page_number_1based < 1 or page_number_1based > doc.page_count:
+            raise ValueError(
+                f"Page {page_number_1based} out of range (1-{doc.page_count})."
+            )
+        page = doc[page_number_1based - 1]
+        prect = page.rect
+        if prect.width <= 0 or prect.height <= 0:
+            return None
+
+        best_area = 0.0
+        best_rect: fitz.Rect | None = None
+        for img in page.get_images(full=True):
+            xref = img[0]
+            try:
+                info = doc.extract_image(xref)
+            except Exception:
+                continue
+            if info.get("width", 0) < min_dim or info.get("height", 0) < min_dim:
+                continue
+            try:
+                rects = page.get_image_rects(xref)
+            except Exception:
+                rects = []
+            for rect in rects:
+                r = fitz.Rect(rect) & prect
+                if r.is_empty:
+                    continue
+                area = r.width * r.height
+                if area > best_area:
+                    best_area = area
+                    best_rect = r
+
+        if best_rect is None:
+            return None
+
+        x0 = (best_rect.x0 - prect.x0) / prect.width
+        y0 = (best_rect.y0 - prect.y0) / prect.height
+        x1 = (best_rect.x1 - prect.x0) / prect.width
+        y1 = (best_rect.y1 - prect.y0) / prect.height
+
+        x0 = max(0.0, x0 - margin)
+        y0 = max(0.0, y0 - margin)
+        x1 = min(1.0, x1 + margin)
+        y1 = min(1.0, y1 + margin)
+
+        if x1 <= x0 or y1 <= y0:
+            return None
+        return ImageCrop(x0=x0, y0=y0, x1=x1, y1=y1)
+
+
 def render_page(
     pdf_bytes: bytes,
     page_number_1based: int,
