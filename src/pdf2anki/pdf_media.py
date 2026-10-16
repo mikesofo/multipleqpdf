@@ -29,6 +29,53 @@ MAX_UNCAPTIONED_DISTANCE_FRAC: float = 0.18
 CAPTION_PATTERN = r"(?i)\b(fig(?:ure)?\.?|plate|table|scheme)\b"
 # Minimum Jaccard token overlap for a caption-similarity (Tier 2) match.
 CAPTION_SIM_THRESHOLD: float = 0.25
+# Minimum salient-term length (alphabetic) for lexical plausibility gating.
+MIN_SALIENT_LEN: int = 4
+# Common/caption-structural words that carry no topical signal and must not
+# count as a lexical match between a question and a caption.
+STOPWORDS: frozenset[str] = frozenset(
+    {
+        "figure", "figures", "fig", "figs", "plate", "table", "scheme",
+        "photomicrograph", "photomicrographs", "micrograph", "image", "images",
+        "picture", "panel", "inset", "arrow", "arrows", "scale", "bar",
+        "shown", "show", "shows", "showing", "seen", "view", "views",
+        "overview", "detail", "details", "section", "sections", "cross",
+        "high", "low", "power", "magnification", "field", "level", "region",
+        "left", "right", "upper", "lower", "middle", "center", "centre",
+        "this", "that", "these", "those", "which", "with", "without", "from",
+        "about", "near", "into", "onto", "over", "under", "between", "within",
+        "there", "here", "where", "when", "what", "whose", "their", "them",
+        "they", "the", "and", "for", "are", "was", "were", "has", "have",
+        "had", "its", "also", "such", "than", "then", "both", "each", "some",
+        "question", "questions", "answer", "stem", "above", "below", "following",
+    }
+)
+
+
+def _salient_terms(text: str) -> set[str]:
+    """Return topical content terms: alphabetic, length >= MIN_SALIENT_LEN,
+    lowercased, with stopwords removed."""
+    terms: set[str] = set()
+    for tok in re.split(r"[^a-zA-Z]+", text or ""):
+        low = tok.lower()
+        if len(low) >= MIN_SALIENT_LEN and low not in STOPWORDS:
+            terms.add(low)
+    return terms
+
+
+def _passes_lexical_gate(query_text: str, caption_text: str) -> bool:
+    """Hard precision gate before semantic matching.
+
+    Requires at least one strong salient-term overlap between the question/
+    support text and the caption. When both sides have salient terms but share
+    none, the candidate is rejected (conflict), preventing unrelated medical
+    entities (e.g. 'lichen' vs 'syphilis') from matching.
+    """
+    q_terms = _salient_terms(query_text)
+    c_terms = _salient_terms(caption_text)
+    if not q_terms or not c_terms:
+        return False
+    return bool(q_terms & c_terms)
 # Matches figure labels like "Figure 3", "Fig. 2.1", "FIG 4A", "Figs. 1-2".
 FIGURE_LABEL_PATTERN = re.compile(
     r"(?i)\bfig(?:ure|s|\.)?\.?\s*([0-9]+(?:\.[0-9]+)*[a-z]?)"
@@ -498,6 +545,10 @@ def find_image_crop_by_caption(
     best_sim = 0.0
     for meta in metas:
         if not meta.caption_text:
+            continue
+        # Hard lexical plausibility/conflict gate before semantic reranking:
+        # only captions sharing a salient content term are eligible.
+        if not _passes_lexical_gate(query, meta.caption_text):
             continue
         sim = _caption_similarity(query, meta.caption_text)
         if sim > best_sim:

@@ -7,8 +7,10 @@ import pytest
 from conftest import (
     make_large_pdf_with_toc,
     make_pdf_with_captioned_image,
+    make_pdf_with_conflicting_caption,
     make_pdf_with_image,
     make_pdf_with_labeled_figures,
+    make_pdf_with_matching_caption,
     make_pdf_with_nearby_and_far_images,
     make_pdf_with_toc,
     make_pdf_with_two_images,
@@ -330,6 +332,39 @@ def test_low_confidence_returns_no_image() -> None:
     # No figure reference, no caption overlap, no nearby anchor text match.
     crop = select_image_crop(
         data, 1, "entirely unrelated content with no overlap tokens"
+    )
+    assert crop is None
+
+
+def test_caption_match_rejects_conflicting_medical_term() -> None:
+    # Question is about lichen; the only caption mentions syphilis -> reject.
+    data = make_pdf_with_conflicting_caption()
+    query = "Which feature is characteristic of lichen planus in this patient?"
+    assert find_image_crop_by_caption(data, 1, query) is None
+
+
+def test_caption_match_succeeds_on_shared_salient_term() -> None:
+    # Caption shares the salient term 'lichen' with the question -> match.
+    data = make_pdf_with_matching_caption()
+    query = "Which feature is characteristic of lichen planus in this patient?"
+    crop = find_image_crop_by_caption(data, 1, query)
+    assert crop is not None
+
+
+def test_caption_match_rejects_low_lexical_overlap() -> None:
+    # Only stopword/structural overlap with the caption -> no salient term -> reject.
+    data = make_pdf_with_matching_caption()  # caption: "Lichen planus papules..."
+    query = "This figure is shown at high power in the following section."
+    assert find_image_crop_by_caption(data, 1, query) is None
+
+
+def test_select_image_crop_conflicting_caption_returns_no_image() -> None:
+    # End-to-end: lichen question, syphilis caption, no figure ref, no anchor
+    # match -> lone-captioned Tier 4 still fires only via caption adjacency, but
+    # the caption tier (Tier 2) must not select the conflicting figure.
+    data = make_pdf_with_conflicting_caption()
+    crop = find_image_crop_by_caption(
+        data, 1, "Describe the lichen planus lesion morphology."
     )
     assert crop is None
 

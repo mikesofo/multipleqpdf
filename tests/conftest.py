@@ -130,6 +130,34 @@ def make_pdf_with_labeled_figures() -> bytes:
     return doc.tobytes()
 
 
+def make_pdf_with_conflicting_caption() -> bytes:
+    """A 1-page PDF whose single figure caption names an unrelated disease.
+
+    Caption mentions 'syphilis' so a 'lichen' question must not match it.
+    """
+    doc = fitz.open()
+    page = doc.new_page(width=300, height=400)
+    png = _png_bytes(160, 160, (10, 120, 60))
+    page.insert_text((20, 30), "Clinical description of the dermatosis")
+    page.insert_image(fitz.Rect(40, 60, 260, 280), stream=png)
+    page.insert_text((40, 300), "Figure 1. Secondary syphilis rash on the trunk.")
+    return doc.tobytes()
+
+
+def make_pdf_with_matching_caption() -> bytes:
+    """A 1-page PDF whose figure caption shares a salient term with the query.
+
+    Caption mentions 'lichen planus' so a 'lichen' question should match it.
+    """
+    doc = fitz.open()
+    page = doc.new_page(width=300, height=400)
+    png = _png_bytes(160, 160, (10, 120, 60))
+    page.insert_text((20, 30), "Clinical description of the dermatosis")
+    page.insert_image(fitz.Rect(40, 60, 260, 280), stream=png)
+    page.insert_text((40, 300), "Figure 1. Lichen planus papules on the wrist.")
+    return doc.tobytes()
+
+
 def make_pdf_with_toc(pages: int = 6) -> bytes:
     """Create a PDF with a 3-chapter top-level outline (chapters at 1, 3, 5)."""
     doc = fitz.open()
