@@ -11,10 +11,8 @@ import genanki
 
 from .pdf_media import (
     DEFAULT_DPI,
-    largest_image_crop,
     media_filename,
     render_crop,
-    select_image_crop,
 )
 from .schemas import MCQ
 
@@ -181,7 +179,6 @@ def export_apkg_bytes(
     pdf_hash: str,
     pdf_title: str,
     dpi: int = DEFAULT_DPI,
-    client: object | None = None,
 ) -> bytes:
     """Package validated MCQs and their rendered images into an .apkg byte buffer."""
     model = build_anki_model(pdf_hash)
@@ -195,39 +192,16 @@ def export_apkg_bytes(
 
         for mcq in mcqs:
             image_basename: str | None = None
+            # Only questions explicitly grounded to a figure (image_required)
+            # receive an image. Text-based questions stay text-only: no image
+            # selection/pairing is run and no placeholder is reserved.
             effective_page = (
                 mcq.image_page
                 if mcq.image_page is not None
                 else (mcq.source_pages[0] if mcq.source_pages else None)
             )
             crop = mcq.image_crop
-            should_attach = mcq.image_required
-            if not should_attach and effective_page is not None:
-                try:
-                    crop = select_image_crop(
-                        pdf_bytes,
-                        effective_page,
-                        mcq.source_support,
-                        extra_text=mcq.stem,
-                        client=client,
-                    )
-                except (ValueError, RuntimeError):
-                    crop = None
-                should_attach = crop is not None
-            if should_attach and effective_page is not None:
-                if crop is None:
-                    try:
-                        crop = select_image_crop(
-                            pdf_bytes,
-                            effective_page,
-                            mcq.source_support,
-                            extra_text=mcq.stem,
-                            client=client,
-                        )
-                        if crop is None:
-                            crop = largest_image_crop(pdf_bytes, effective_page)
-                    except (ValueError, RuntimeError):
-                        crop = None
+            if mcq.image_required and effective_page is not None:
                 try:
                     png_bytes = render_crop(
                         pdf_bytes,

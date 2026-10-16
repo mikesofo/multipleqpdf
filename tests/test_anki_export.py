@@ -12,14 +12,7 @@ from pathlib import Path
 
 from conftest import make_pdf_with_image, make_pdf_with_two_images, make_sample_pdf
 from pdf2anki.anki_export import build_anki_model, build_note_fields, export_apkg_bytes
-from pdf2anki.pdf_media import (
-    best_image_crop_for_text,
-    compute_pdf_hash,
-    largest_image_crop,
-    media_filename,
-    render_crop,
-    render_page,
-)
+from pdf2anki.pdf_media import compute_pdf_hash, media_filename
 from pdf2anki.schemas import MCQ, ImageCrop
 
 
@@ -173,17 +166,19 @@ def test_export_apkg_auto_attaches_from_source_pages_when_image_page_missing() -
                 assert f'<img src="{expected_basename}"' in note_fields[7]
 
 
-def test_export_auto_attaches_when_source_page_has_image_even_if_not_required() -> None:
+def test_export_text_based_question_never_attaches_image() -> None:
+    # A text-based question (image_required=False) must stay text-only even when
+    # its source page contains a detectable figure.
     pdf_bytes = make_pdf_with_image(image_page_1based=1, pages=1)
     pdf_hash = compute_pdf_hash(pdf_bytes)
     mcq = MCQ(
-        id="auto-img-q1",
-        learning_objective="Identify figure",
+        id="text-q1",
+        learning_objective="Recall figure",
         topic="Histology",
-        stem="Which structure is shown?",
+        stem="Which structure is described?",
         options=["Alpha", "Beta", "Gamma", "Delta"],
         correct_index=1,
-        explanation="Beta is the green square.",
+        explanation="Beta is described in the text.",
         source_pages=[1],
         source_support="Page 1 content",
         image_required=False,
@@ -198,26 +193,56 @@ def test_export_auto_attaches_when_source_page_has_image_even_if_not_required() 
         pdf_title="Histology Atlas",
     )
 
-    auto_crop = largest_image_crop(pdf_bytes, 1)
-    assert auto_crop is not None  # fixture page has a detectable figure region
-    expected_basename = media_filename(pdf_hash, 1, mcq.id, auto_crop)
-    full_page_basename = media_filename(pdf_hash, 1, mcq.id, None)
-    assert expected_basename != full_page_basename
-
     with zipfile.ZipFile(io.BytesIO(apkg_bytes), "r") as zf:
         names = set(zf.namelist())
         media_map = json.loads(zf.read("media").decode("utf-8"))
-        # Exported asset must be the cropped region, not the whole page.
+        assert media_map == {}
+
+        db_member = "collection.anki21" if "collection.anki21" in names else "collection.anki2"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "collection.sqlite"
+            db_path.write_bytes(zf.read(db_member))
+            with sqlite3.connect(db_path) as conn:
+                row = conn.execute("SELECT flds FROM notes LIMIT 1").fetchone()
+                assert row is not None
+                note_fields = row[0].split("\x1f")
+                assert note_fields[7] == ""
+
+
+def test_export_figure_grounded_question_renders_image() -> None:
+    # A figure-grounded question (image_required=True with a crop) is rendered.
+    pdf_bytes = make_pdf_with_image(image_page_1based=1, pages=1)
+    pdf_hash = compute_pdf_hash(pdf_bytes)
+    crop = ImageCrop(x0=0.1, y0=0.3, x1=0.9, y1=0.9)
+    mcq = MCQ(
+        id="fig-q1",
+        learning_objective="Identify figure",
+        topic="Histology",
+        stem="Which structure is shown in the figure?",
+        options=["Alpha", "Beta", "Gamma", "Delta"],
+        correct_index=1,
+        explanation="Beta is the green square.",
+        source_pages=[1],
+        image_required=True,
+        image_page=1,
+        image_crop=crop,
+    )
+
+    apkg_bytes = export_apkg_bytes(
+        mcqs=[mcq],
+        pdf_bytes=pdf_bytes,
+        pdf_hash=pdf_hash,
+        pdf_title="Histology Atlas",
+    )
+
+    expected_basename = media_filename(pdf_hash, 1, mcq.id, crop)
+    with zipfile.ZipFile(io.BytesIO(apkg_bytes), "r") as zf:
+        names = set(zf.namelist())
+        media_map = json.loads(zf.read("media").decode("utf-8"))
         assert expected_basename in media_map.values()
-        assert full_page_basename not in media_map.values()
         for archive_key, mapped_name in media_map.items():
             if mapped_name == expected_basename:
-                cropped = zf.read(archive_key)
-                assert cropped.startswith(b"\x89PNG")
-                # Cropped region should be smaller than a full-page render.
-                full_png = render_page(pdf_bytes, 1)
-                region_png = render_crop(pdf_bytes, 1, auto_crop)
-                assert len(region_png) <= len(full_png)
+                assert zf.read(archive_key).startswith(b"\x89PNG")
 
         db_member = "collection.anki21" if "collection.anki21" in names else "collection.anki2"
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -272,20 +297,20 @@ def test_export_does_not_auto_attach_distant_unrelated_image() -> None:
         assert media_map == {}
 
 
-def test_export_selects_nearest_image_among_multiple_on_page() -> None:
+def test_export_text_based_multi_image_page_stays_text_only() -> None:
+    # Even on a page with multiple images, a text-based question attaches none.
     pdf_bytes = make_pdf_with_two_images()
     pdf_hash = compute_pdf_hash(pdf_bytes)
-    support = "Top anchor text about glomerulus"
     mcq = MCQ(
-        id="multi-img-q1",
-        learning_objective="Identify glomerulus",
+        id="multi-text-q1",
+        learning_objective="Recall glomerulus",
         topic="Renal",
-        stem="Which structure is near the top text?",
+        stem="Which structure is described near the top text?",
         options=["Alpha", "Beta", "Gamma", "Delta"],
         correct_index=0,
-        explanation="Alpha is the top figure.",
+        explanation="Alpha is described.",
         source_pages=[1],
-        source_support=support,
+        source_support="Top anchor text about glomerulus",
         image_required=False,
         image_page=None,
         image_crop=None,
@@ -298,18 +323,9 @@ def test_export_selects_nearest_image_among_multiple_on_page() -> None:
         pdf_title="Renal Atlas",
     )
 
-    expected_crop = best_image_crop_for_text(pdf_bytes, 1, support)
-    largest_crop = largest_image_crop(pdf_bytes, 1)
-    assert expected_crop is not None
-    assert largest_crop is not None
-    expected_name = media_filename(pdf_hash, 1, mcq.id, expected_crop)
-    wrong_largest_name = media_filename(pdf_hash, 1, mcq.id, largest_crop)
-    assert expected_name != wrong_largest_name
-
     with zipfile.ZipFile(io.BytesIO(apkg_bytes), "r") as zf:
         media_map = json.loads(zf.read("media").decode("utf-8"))
-        assert expected_name in media_map.values()
-        assert wrong_largest_name not in media_map.values()
+        assert media_map == {}
 
 
 def test_export_apkg_omits_image_when_not_required() -> None:

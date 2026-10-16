@@ -72,15 +72,18 @@ def _autoselect_images(
     pdf_bytes: bytes,
     page_count: int,
     client: AnthropicClient | None = None,
+    promote: bool = True,
 ) -> None:
-    """Preselect images for generated MCQs whose source text is near a real figure.
+    """Seed image widget state and optionally promote figure-grounded images.
 
-    Mutates the list in place and seeds corresponding Streamlit widget state.
-    Only fills in defaults when the model did not already request an image, so
-    manual/model choices are preserved.
+    When ``promote`` is True, a question not already flagged ``image_required``
+    may be promoted if its source text is near a valid figure. When False (used
+    for text-based generation), no image selection/pairing is run and
+    text-based questions stay text-only. Figure-grounded questions that already
+    set ``image_required`` are preserved regardless.
     """
     for i, mcq in enumerate(mcqs):
-        if not mcq.image_required:
+        if promote and not mcq.image_required:
             effective_page = (
                 mcq.image_page
                 if mcq.image_page is not None
@@ -508,7 +511,15 @@ def main() -> None:
                         allowed_pages=selected_pages,
                     )
             generated = list(result.mcqs)
-            _autoselect_images(generated, data, pages, client=client)
+            # Text-based mode must never auto-attach images; figure-grounded and
+            # mixed modes already carry image_required on their figure subset.
+            _autoselect_images(
+                generated,
+                data,
+                pages,
+                client=client,
+                promote=(gen_mode != "Text-based"),
+            )
             st.session_state["plan"] = result.plan
             st.session_state["mcqs"] = generated
             st.session_state["rejected"] = list(result.rejected)
@@ -566,7 +577,6 @@ def main() -> None:
                     pdf_bytes=data,
                     pdf_hash=pdf_info.pdf_hash,
                     pdf_title=plan.title if plan and plan.title else uploaded.name,
-                    client=client,
                 )
                 st.session_state["apkg_bytes"] = apkg_bytes
             except Exception as exc:
