@@ -236,10 +236,12 @@ def test_export_does_not_auto_attach_distant_unrelated_image() -> None:
     from conftest import _png_bytes
 
     doc = fitz.open()
-    page = doc.new_page(width=400, height=800)
+    page = doc.new_page(width=400, height=1200)
     page.insert_text((20, 30), "Top text with no associated image")
-    png = _png_bytes(100, 100, (20, 40, 160))
-    page.insert_image(fitz.Rect(200, 640, 360, 780), stream=png)
+    png_a = _png_bytes(100, 100, (20, 40, 160))
+    png_b = _png_bytes(100, 100, (160, 40, 20))
+    page.insert_image(fitz.Rect(40, 560, 200, 700), stream=png_a)
+    page.insert_image(fitz.Rect(200, 1000, 360, 1140), stream=png_b)
     pdf_bytes = doc.tobytes()
     pdf_hash = compute_pdf_hash(pdf_bytes)
 

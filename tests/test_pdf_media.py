@@ -14,6 +14,7 @@ from pdf2anki.pdf_media import (
     media_filename,
     render_crop,
     render_page,
+    select_image_crop,
     validate_pdf,
 )
 from pdf2anki.schemas import ImageCrop
@@ -174,3 +175,42 @@ def test_best_image_crop_for_text_returns_none_without_anchor() -> None:
     data = make_pdf_with_image(image_page_1based=1, pages=1)
     assert best_image_crop_for_text(data, 1, "") is None
     assert best_image_crop_for_text(data, 1, "text not on page") is None
+
+
+def test_select_image_crop_tier1_anchors_on_source_text() -> None:
+    data = make_pdf_with_two_images()
+    crop = select_image_crop(data, 1, "Top anchor text about glomerulus")
+    assert crop is not None
+    # Nearest image to the top text is the top figure.
+    assert crop.y1 < 0.35
+
+
+def test_select_image_crop_tier2_anchors_on_fragment() -> None:
+    # source_support is a paraphrase whose only literal overlap is a fragment
+    # that does appear verbatim on the page.
+    data = make_pdf_with_two_images()
+    paraphrase = (
+        "This question concerns the glomerulus; see Top anchor text about "
+        "glomerulus, which labels the figure."
+    )
+    crop = select_image_crop(data, 1, paraphrase)
+    assert crop is not None
+    assert crop.y1 < 0.35
+
+
+def test_select_image_crop_tier3_single_image_fallback() -> None:
+    # One substantial image, source text does not match anything on the page.
+    data = make_pdf_with_image(image_page_1based=1, pages=1)
+    crop = select_image_crop(data, 1, "completely unrelated description")
+    assert crop is not None  # lone image -> conservative fallback
+
+
+def test_select_image_crop_no_fallback_with_multiple_unanchored_images() -> None:
+    # Two images, no anchor match -> prefer no image over an unrelated one.
+    data = make_pdf_with_two_images()
+    assert select_image_crop(data, 1, "no matching text whatsoever") is None
+
+
+def test_select_image_crop_none_on_text_only_page() -> None:
+    data = _make_pdf(pages=1)
+    assert select_image_crop(data, 1, "Page 1 content") is None

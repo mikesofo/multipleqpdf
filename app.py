@@ -16,8 +16,8 @@ from pdf2anki.config import (
 )
 from pdf2anki.pdf_media import (
     PDFValidationError,
-    best_image_crop_for_text,
     render_crop,
+    select_image_crop,
     validate_pdf,
 )
 from pdf2anki.schemas import MCQ, ImageCrop
@@ -70,7 +70,7 @@ def _autoselect_images(mcqs: list[MCQ], pdf_bytes: bytes, page_count: int) -> No
             )
             if effective_page is not None and (1 <= effective_page <= page_count):
                 try:
-                    matched_crop = best_image_crop_for_text(
+                    matched_crop = select_image_crop(
                         pdf_bytes,
                         effective_page,
                         mcq.source_support,

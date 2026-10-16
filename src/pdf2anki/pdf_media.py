@@ -289,6 +289,72 @@ def best_image_crop_for_text(
         return _rect_to_crop(best_rect, prect, margin)
 
 
+def _anchor_queries(source_text: str) -> list[str]:
+    """Derive progressively shorter literal anchors from source text.
+
+    Returns the full string first, then sentence/phrase fragments ordered by
+    descending length, so the most specific literal match is tried first.
+    """
+    text = " ".join((source_text or "").split())
+    if not text:
+        return []
+    queries: list[str] = [text]
+    seen: set[str] = {text}
+    separators = [". ", "; ", ", ", ": "]
+    fragments: list[str] = [text]
+    for sep in separators:
+        next_fragments: list[str] = []
+        for frag in fragments:
+            next_fragments.extend(part for part in frag.split(sep))
+        fragments = next_fragments
+    for frag in sorted(
+        (f.strip() for f in fragments), key=len, reverse=True
+    ):
+        # Require a reasonably specific fragment to avoid trivial matches.
+        if len(frag) >= 12 and frag not in seen:
+            seen.add(frag)
+            queries.append(frag)
+    return queries
+
+
+def select_image_crop(
+    pdf_bytes: bytes,
+    page_number_1based: int,
+    source_text: str,
+    *,
+    min_dim: int = MIN_IMAGE_DIMENSION,
+    margin: float = 0.03,
+    max_distance_frac: float = DEFAULT_MAX_DISTANCE_FRAC,
+) -> ImageCrop | None:
+    """Pick an image crop for a page using a tiered fallback strategy.
+
+    Tier 1/2: anchor on the source text (full string, then longest literal
+    fragments) and choose the nearest qualifying image within distance.
+    Tier 3: if no anchor matches, fall back to the single substantial image on
+    the page when (and only when) exactly one exists. Returns ``None`` when the
+    page has no usable image, or has several images and no reliable anchor
+    (preferring no image over an unrelated one).
+    """
+    for query in _anchor_queries(source_text):
+        crop = best_image_crop_for_text(
+            pdf_bytes,
+            page_number_1based,
+            query,
+            min_dim=min_dim,
+            margin=margin,
+            max_distance_frac=max_distance_frac,
+        )
+        if crop is not None:
+            return crop
+
+    # Tier 3: conservative page-level fallback for a lone substantial image.
+    if count_page_images(pdf_bytes, page_number_1based, min_dim=min_dim) == 1:
+        return largest_image_crop(
+            pdf_bytes, page_number_1based, min_dim=min_dim, margin=margin
+        )
+    return None
+
+
 def render_page(
     pdf_bytes: bytes,
     page_number_1based: int,

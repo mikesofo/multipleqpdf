@@ -11,10 +11,10 @@ import genanki
 
 from .pdf_media import (
     DEFAULT_DPI,
-    best_image_crop_for_text,
     largest_image_crop,
     media_filename,
     render_crop,
+    select_image_crop,
 )
 from .schemas import MCQ
 
@@ -203,7 +203,7 @@ def export_apkg_bytes(
             should_attach = mcq.image_required
             if not should_attach and effective_page is not None:
                 try:
-                    crop = best_image_crop_for_text(
+                    crop = select_image_crop(
                         pdf_bytes,
                         effective_page,
                         mcq.source_support,
@@ -214,7 +214,7 @@ def export_apkg_bytes(
             if should_attach and effective_page is not None:
                 if crop is None:
                     try:
-                        crop = best_image_crop_for_text(
+                        crop = select_image_crop(
                             pdf_bytes,
                             effective_page,
                             mcq.source_support,
