@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import pytest
 
+from conftest import make_pdf_with_image
 from conftest import make_sample_pdf as _make_pdf
 from pdf2anki.pdf_media import (
     PDFValidationError,
+    count_page_images,
     media_filename,
     render_crop,
     render_page,
@@ -66,3 +68,26 @@ def test_media_filename_is_collision_proof() -> None:
     name_b = media_filename("deadbeef12345678", 1, "q1", crop_b)
     assert name_a != name_b
     assert name_a.endswith(".png")
+
+
+def test_count_page_images_detects_embedded_image() -> None:
+    data = make_pdf_with_image(image_page_1based=1, pages=1)
+    assert count_page_images(data, 1) >= 1
+
+
+def test_count_page_images_ignores_text_only_page() -> None:
+    data = _make_pdf(pages=1)
+    assert count_page_images(data, 1) == 0
+
+
+def test_count_page_images_ignores_trivial_image() -> None:
+    data = make_pdf_with_image(
+        image_page_1based=1, pages=1, image_width=16, image_height=16
+    )
+    assert count_page_images(data, 1) == 0
+
+
+def test_count_page_images_out_of_range_raises() -> None:
+    data = _make_pdf(pages=1)
+    with pytest.raises(ValueError, match="out of range"):
+        count_page_images(data, 5)

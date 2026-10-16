@@ -9,7 +9,12 @@ from pathlib import Path
 
 import genanki
 
-from .pdf_media import DEFAULT_DPI, media_filename, render_crop
+from .pdf_media import (
+    DEFAULT_DPI,
+    count_page_images,
+    media_filename,
+    render_crop,
+)
 from .schemas import MCQ
 
 OPTION_LABELS: tuple[str, str, str, str] = ("A", "B", "C", "D")
@@ -193,7 +198,13 @@ def export_apkg_bytes(
                 if mcq.image_page is not None
                 else (mcq.source_pages[0] if mcq.source_pages else None)
             )
-            if mcq.image_required and effective_page is not None:
+            should_attach = mcq.image_required
+            if not should_attach and effective_page is not None:
+                try:
+                    should_attach = count_page_images(pdf_bytes, effective_page) >= 1
+                except (ValueError, RuntimeError):
+                    should_attach = False
+            if should_attach and effective_page is not None:
                 try:
                     png_bytes = render_crop(
                         pdf_bytes,

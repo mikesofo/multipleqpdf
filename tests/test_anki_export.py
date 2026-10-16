@@ -10,7 +10,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from conftest import make_sample_pdf
+from conftest import make_pdf_with_image, make_sample_pdf
 from pdf2anki.anki_export import build_anki_model, build_note_fields, export_apkg_bytes
 from pdf2anki.pdf_media import compute_pdf_hash, media_filename
 from pdf2anki.schemas import MCQ, ImageCrop
@@ -109,6 +109,51 @@ def test_export_apkg_auto_attaches_from_source_pages_when_image_page_missing() -
         explanation="Beta is the green circle.",
         source_pages=[1],
         image_required=True,
+        image_page=None,
+        image_crop=None,
+    )
+
+    apkg_bytes = export_apkg_bytes(
+        mcqs=[mcq],
+        pdf_bytes=pdf_bytes,
+        pdf_hash=pdf_hash,
+        pdf_title="Histology Atlas",
+    )
+
+    expected_basename = media_filename(pdf_hash, 1, mcq.id, None)
+
+    with zipfile.ZipFile(io.BytesIO(apkg_bytes), "r") as zf:
+        names = set(zf.namelist())
+        media_map = json.loads(zf.read("media").decode("utf-8"))
+        assert expected_basename in media_map.values()
+        for archive_key, mapped_name in media_map.items():
+            if mapped_name == expected_basename:
+                assert zf.read(archive_key).startswith(b"\x89PNG")
+
+        db_member = "collection.anki21" if "collection.anki21" in names else "collection.anki2"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "collection.sqlite"
+            db_path.write_bytes(zf.read(db_member))
+            with sqlite3.connect(db_path) as conn:
+                row = conn.execute("SELECT flds FROM notes LIMIT 1").fetchone()
+                assert row is not None
+                note_fields = row[0].split("\x1f")
+                assert f'<img src="{expected_basename}"' in note_fields[7]
+
+
+def test_export_auto_attaches_when_source_page_has_image_even_if_not_required() -> None:
+    pdf_bytes = make_pdf_with_image(image_page_1based=1, pages=1)
+    pdf_hash = compute_pdf_hash(pdf_bytes)
+    mcq = MCQ(
+        id="auto-img-q1",
+        learning_objective="Identify figure",
+        topic="Histology",
+        stem="Which structure is shown?",
+        options=["Alpha", "Beta", "Gamma", "Delta"],
+        correct_index=1,
+        explanation="Beta is the green square.",
+        source_pages=[1],
+        image_required=False,
         image_page=None,
         image_crop=None,
     )

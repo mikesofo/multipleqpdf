@@ -11,6 +11,7 @@ from .config import ACCEPTED_MIME_TYPE, MAX_PDF_BYTES, MAX_PDF_PAGES
 from .schemas import ImageCrop
 
 DEFAULT_DPI: int = 180
+MIN_IMAGE_DIMENSION: int = 64
 
 
 class PDFValidationError(ValueError):
@@ -98,6 +99,34 @@ def media_filename(
         f"{pdf_hash}:{page_number_1based}:{question_id}:{crop_tag}".encode()
     ).hexdigest()[:10]
     return f"pdf2anki_{pdf_hash[:8]}_p{page_number_1based}_{safe_qid}_{crop_tag}_{digest}.png"
+
+
+def count_page_images(
+    pdf_bytes: bytes,
+    page_number_1based: int,
+    min_dim: int = MIN_IMAGE_DIMENSION,
+) -> int:
+    """Count non-trivial embedded raster images on a 1-based page.
+
+    Images smaller than ``min_dim`` in either dimension are treated as
+    decorative and ignored. Per-image extraction errors are skipped.
+    """
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        if page_number_1based < 1 or page_number_1based > doc.page_count:
+            raise ValueError(
+                f"Page {page_number_1based} out of range (1-{doc.page_count})."
+            )
+        page = doc[page_number_1based - 1]
+        count = 0
+        for img in page.get_images(full=True):
+            xref = img[0]
+            try:
+                info = doc.extract_image(xref)
+            except Exception:
+                continue
+            if info.get("width", 0) >= min_dim and info.get("height", 0) >= min_dim:
+                count += 1
+        return count
 
 
 def render_page(
