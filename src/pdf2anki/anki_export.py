@@ -57,6 +57,7 @@ CARD_CSS = """
 .answer-box {
     margin-top: 14px;
     padding: 12px;
+    color: #065f46;
     background-color: #ecfdf5;
     border-left: 4px solid #10b981;
     border-radius: 4px;
@@ -187,11 +188,16 @@ def export_apkg_bytes(
 
         for mcq in mcqs:
             image_basename: str | None = None
-            if mcq.image_required and mcq.image_page is not None:
+            effective_page = (
+                mcq.image_page
+                if mcq.image_page is not None
+                else (mcq.source_pages[0] if mcq.source_pages else None)
+            )
+            if mcq.image_required and effective_page is not None:
                 try:
                     png_bytes = render_crop(
                         pdf_bytes,
-                        mcq.image_page,
+                        effective_page,
                         mcq.image_crop,
                         dpi=dpi,
                     )
@@ -200,7 +206,7 @@ def export_apkg_bytes(
                 if png_bytes is not None:
                     image_basename = media_filename(
                         pdf_hash,
-                        mcq.image_page,
+                        effective_page,
                         mcq.id,
                         mcq.image_crop,
                     )

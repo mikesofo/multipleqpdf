@@ -9,8 +9,10 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+import re
+
 from conftest import make_sample_pdf
-from pdf2anki.anki_export import build_note_fields, export_apkg_bytes
+from pdf2anki.anki_export import build_anki_model, build_note_fields, export_apkg_bytes
 from pdf2anki.pdf_media import compute_pdf_hash, media_filename
 from pdf2anki.schemas import MCQ, ImageCrop
 
@@ -91,4 +93,98 @@ def test_export_apkg_embeds_image_media() -> None:
                 row = conn.execute("SELECT flds FROM notes LIMIT 1").fetchone()
                 assert row is not None
                 note_fields = row[0].split("\x1f")
+                assert f'<img src="{expected_basename}"' in note_fields[7]
                 assert note_fields[11] == "Histology Atlas"
+
+
+def test_export_apkg_auto_attaches_from_source_pages_when_image_page_missing() -> None:
+    pdf_bytes = _sample_pdf()
+    pdf_hash = compute_pdf_hash(pdf_bytes)
+    mcq = MCQ(
+        id="img-fallback-q1",
+        learning_objective="Identify figure",
+        topic="Histology",
+        stem="Which structure is shown?",
+        options=["Alpha", "Beta", "Gamma", "Delta"],
+        correct_index=1,
+        explanation="Beta is the green circle.",
+        source_pages=[1],
+        image_required=True,
+        image_page=None,
+        image_crop=None,
+    )
+
+    apkg_bytes = export_apkg_bytes(
+        mcqs=[mcq],
+        pdf_bytes=pdf_bytes,
+        pdf_hash=pdf_hash,
+        pdf_title="Histology Atlas",
+    )
+
+    expected_basename = media_filename(pdf_hash, 1, mcq.id, None)
+
+    with zipfile.ZipFile(io.BytesIO(apkg_bytes), "r") as zf:
+        names = set(zf.namelist())
+        media_map = json.loads(zf.read("media").decode("utf-8"))
+        assert expected_basename in media_map.values()
+        for archive_key, mapped_name in media_map.items():
+            if mapped_name == expected_basename:
+                assert zf.read(archive_key).startswith(b"\x89PNG")
+
+        db_member = "collection.anki21" if "collection.anki21" in names else "collection.anki2"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "collection.sqlite"
+            db_path.write_bytes(zf.read(db_member))
+            with sqlite3.connect(db_path) as conn:
+                row = conn.execute("SELECT flds FROM notes LIMIT 1").fetchone()
+                assert row is not None
+                note_fields = row[0].split("\x1f")
+                assert f'<img src="{expected_basename}"' in note_fields[7]
+
+
+def test_export_apkg_omits_image_when_not_required() -> None:
+    pdf_bytes = _sample_pdf()
+    pdf_hash = compute_pdf_hash(pdf_bytes)
+    mcq = MCQ(
+        id="no-img-q1",
+        learning_objective="Recall fact",
+        topic="Histology",
+        stem="Which statement is true?",
+        options=["Alpha", "Beta", "Gamma", "Delta"],
+        correct_index=0,
+        explanation="Alpha is true.",
+        source_pages=[1],
+        image_required=False,
+        image_page=None,
+    )
+
+    apkg_bytes = export_apkg_bytes(
+        mcqs=[mcq],
+        pdf_bytes=pdf_bytes,
+        pdf_hash=pdf_hash,
+        pdf_title="Histology Atlas",
+    )
+
+    with zipfile.ZipFile(io.BytesIO(apkg_bytes), "r") as zf:
+        names = set(zf.namelist())
+        media_map = json.loads(zf.read("media").decode("utf-8"))
+        assert media_map == {}
+
+        db_member = "collection.anki21" if "collection.anki21" in names else "collection.anki2"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "collection.sqlite"
+            db_path.write_bytes(zf.read(db_member))
+            with sqlite3.connect(db_path) as conn:
+                row = conn.execute("SELECT flds FROM notes LIMIT 1").fetchone()
+                assert row is not None
+                note_fields = row[0].split("\x1f")
+                assert note_fields[7] == ""
+
+
+def test_answer_box_css_defines_explicit_text_color() -> None:
+    model = build_anki_model("deadbeef")
+    match = re.search(r"\.answer-box\s*\{([^}]*)\}", model.css)
+    assert match is not None
+    block = match.group(1)
+    assert "background-color" in block
+    assert re.search(r"(?<![-\w])color\s*:", block) is not None
