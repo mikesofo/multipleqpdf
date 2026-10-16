@@ -759,10 +759,12 @@ def select_image_crop(
     min_dim: int = MIN_IMAGE_DIMENSION,
     margin: float = 0.03,
     max_distance_frac: float = DEFAULT_MAX_DISTANCE_FRAC,
+    client: object | None = None,
 ) -> ImageCrop | None:
     """Pick an image crop for a page using a ranked, grounded strategy.
 
     Ranking order (first match wins):
+      0. Claude structured reranker over deterministic candidates (if ``client``).
       1. Explicit figure-number reference (in ``source_text``/``extra_text``).
       2. Figure-caption similarity to the question/support text.
       3. Nearby paragraph/anchor-text proximity.
@@ -772,6 +774,24 @@ def select_image_crop(
     wrong image).
     """
     combined = f"{extra_text} {source_text}".strip()
+
+    # Tier 0: Claude structured reranker over a small deterministic candidate set.
+    if client is not None:
+        try:
+            from .figure_rerank import rerank_select_crop
+
+            crop = rerank_select_crop(
+                client,  # type: ignore[arg-type]
+                pdf_bytes,
+                page_number_1based,
+                question_text=extra_text,
+                support_text=source_text,
+                margin=margin,
+            )
+            if crop is not None:
+                return crop
+        except Exception:
+            pass
 
     # Tier 1: explicit figure-number reference match (highest confidence).
     crop = find_image_crop_by_reference(

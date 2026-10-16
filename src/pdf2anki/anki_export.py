@@ -181,6 +181,7 @@ def export_apkg_bytes(
     pdf_hash: str,
     pdf_title: str,
     dpi: int = DEFAULT_DPI,
+    client: object | None = None,
 ) -> bytes:
     """Package validated MCQs and their rendered images into an .apkg byte buffer."""
     model = build_anki_model(pdf_hash)
@@ -208,6 +209,7 @@ def export_apkg_bytes(
                         effective_page,
                         mcq.source_support,
                         extra_text=mcq.stem,
+                        client=client,
                     )
                 except (ValueError, RuntimeError):
                     crop = None
@@ -220,6 +222,7 @@ def export_apkg_bytes(
                             effective_page,
                             mcq.source_support,
                             extra_text=mcq.stem,
+                            client=client,
                         )
                         if crop is None:
                             crop = largest_image_crop(pdf_bytes, effective_page)

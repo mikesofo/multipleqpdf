@@ -9,11 +9,13 @@ from .config import SUPPORTED_MODELS
 from .pdf_media import validate_pdf
 from .prompts import (
     COVERAGE_SYSTEM_PROMPT,
+    FIGURE_RERANK_SYSTEM_PROMPT,
     MCQ_SYSTEM_PROMPT,
     coverage_user_prompt,
+    figure_rerank_user_prompt,
     mcq_user_prompt,
 )
-from .schemas import CoveragePlan, MCQBatch
+from .schemas import CoveragePlan, FigureRerankResult, MCQBatch
 
 logger = logging.getLogger("pdf2anki.anthropic")
 
@@ -221,6 +223,47 @@ class AnthropicClient:
         if parsed is None:
             parsed = getattr(message, "parsed", None)
         return parsed
+
+    @_retry_decorator
+    def _parse_text(
+        self,
+        *,
+        system: str,
+        user_text: str,
+        schema: type[Any],
+        max_tokens: int = 4096,
+    ) -> Any:
+        """Call messages.parse with text only (no document block)."""
+        messages: Any = [
+            {"role": "user", "content": [{"type": "text", "text": user_text}]}
+        ]
+        message = self._client.beta.messages.parse(
+            model=self._model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=messages,
+            output_format=schema,
+        )
+        self._log_cache_usage(message)
+        parsed = getattr(message, "parsed_output", None)
+        if parsed is None:
+            parsed = getattr(message, "parsed", None)
+        return parsed
+
+    def rerank_figures(
+        self,
+        question_text: str,
+        support_text: str,
+        candidates: list[dict[str, object]],
+    ) -> FigureRerankResult:
+        """Rerank a small set of figure candidates for a question."""
+        return self._parse_text(
+            system=FIGURE_RERANK_SYSTEM_PROMPT,
+            user_text=figure_rerank_user_prompt(
+                question_text, support_text, candidates
+            ),
+            schema=FigureRerankResult,
+        )
 
     def plan_coverage(self, file_id: str, max_questions: int) -> CoveragePlan:
         """Run Pass 1 and return a validated CoveragePlan."""

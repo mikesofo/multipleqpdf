@@ -60,7 +60,12 @@ def _seed_image_widget_state(mcq: MCQ, idx: int, page_count: int) -> None:
     )
 
 
-def _autoselect_images(mcqs: list[MCQ], pdf_bytes: bytes, page_count: int) -> None:
+def _autoselect_images(
+    mcqs: list[MCQ],
+    pdf_bytes: bytes,
+    page_count: int,
+    client: AnthropicClient | None = None,
+) -> None:
     """Preselect images for generated MCQs whose source text is near a real figure.
 
     Mutates the list in place and seeds corresponding Streamlit widget state.
@@ -81,6 +86,7 @@ def _autoselect_images(mcqs: list[MCQ], pdf_bytes: bytes, page_count: int) -> No
                         effective_page,
                         mcq.source_support,
                         extra_text=mcq.stem,
+                        client=client,
                     )
                 except (ValueError, RuntimeError):
                     matched_crop = None
@@ -436,7 +442,7 @@ def main() -> None:
                     allowed_pages=selected_pages,
                 )
             generated = list(result.mcqs)
-            _autoselect_images(generated, data, pages)
+            _autoselect_images(generated, data, pages, client=client)
             st.session_state["plan"] = result.plan
             st.session_state["mcqs"] = generated
             st.session_state["rejected"] = list(result.rejected)
@@ -490,6 +496,7 @@ def main() -> None:
                     pdf_bytes=data,
                     pdf_hash=pdf_info.pdf_hash,
                     pdf_title=plan.title if plan and plan.title else uploaded.name,
+                    client=client,
                 )
                 st.session_state["apkg_bytes"] = apkg_bytes
             except Exception as exc:

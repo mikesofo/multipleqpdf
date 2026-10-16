@@ -64,3 +64,33 @@ class MCQBatch(BaseModel):
     """A batch of MCQs returned by a single generation call."""
 
     questions: list[MCQ] = Field(default_factory=list)
+
+
+class FigureCandidate(BaseModel):
+    """A deterministically extracted figure candidate shown to the reranker."""
+
+    candidate_id: str
+    figure_label: str = ""
+    caption_text: str = ""
+    page_number: int
+    nearby_reference_text: str = ""
+    local_text_snippet: str = ""
+
+
+class FigureRerankItem(BaseModel):
+    """Per-candidate structured judgment from Claude."""
+
+    candidate_id: str
+    figure_number_match: bool = False
+    caption_overlap_terms: list[str] = Field(default_factory=list)
+    contradiction_terms: list[str] = Field(default_factory=list)
+    score_0_to_100: int = Field(ge=0, le=100)
+    keep: bool = False
+    short_reason: str = ""
+
+
+class FigureRerankResult(BaseModel):
+    """Full reranker output: per-candidate items plus a final decision."""
+
+    items: list[FigureRerankItem] = Field(default_factory=list)
+    final_selected_candidate_id: str | None = None
