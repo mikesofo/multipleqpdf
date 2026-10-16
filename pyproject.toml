@@ -45,6 +45,6 @@ markers = [
 
 [tool.mypy]
 python_version = "3.10"
-packages = ["pdf2anki"]
-mypy_path = "src"
+mypy_path = ["src", "tests"]
+explicit_package_bases = true
 ignore_missing_imports = true
