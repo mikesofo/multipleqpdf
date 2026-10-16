@@ -42,6 +42,9 @@ testpaths = ["tests"]
 markers = [
     "integration: opt-in integration tests that call the live Anthropic API",
 ]
+filterwarnings = [
+    "ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning",
+]
 
 [tool.mypy]
 python_version = "3.10"
