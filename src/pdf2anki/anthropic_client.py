@@ -136,22 +136,23 @@ class AnthropicClient:
         max_tokens: int = 8192,
     ) -> Any:
         """Call messages.parse with a document block and a response schema."""
-        message = self._client.beta.messages.parse(
+        content: list[dict[str, Any]] = [
+            self._file_content_block(file_id),
+            {"type": "text", "text": user_text},
+        ]
+        messages: Any = [{"role": "user", "content": content}]
+        parse = self._client.beta.messages.parse
+        message = parse(
             model=self._model,
             max_tokens=max_tokens,
             system=system,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        self._file_content_block(file_id),
-                        {"type": "text", "text": user_text},
-                    ],
-                }
-            ],
-            response_format=schema,
+            messages=messages,
+            output_format=schema,
         )
-        return message.parsed
+        parsed = getattr(message, "parsed_output", None)
+        if parsed is None:
+            parsed = getattr(message, "parsed", None)
+        return parsed
 
     def plan_coverage(self, file_id: str, max_questions: int) -> CoveragePlan:
         """Run Pass 1 and return a validated CoveragePlan."""
