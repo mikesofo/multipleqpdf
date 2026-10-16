@@ -56,6 +56,7 @@ def recommended_range_for_pages(selected_pages: int) -> tuple[int, int]:
     high = math.ceil(pages / 2)
     return (low, high)
 
+
 # Questions generated per MCQ batch when the plan requires many questions.
 QUESTIONS_PER_BATCH: int = 10
 
