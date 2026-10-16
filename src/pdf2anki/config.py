@@ -26,7 +26,7 @@ QUESTIONS_PER_BATCH: int = 10
 ACCEPTED_MIME_TYPE: str = "application/pdf"
 
 SUPPORTED_MODELS: tuple[str, ...] = (
-    "claude-opus-4-20250514",
+    "claude-opus-4-8",
     "claude-sonnet-4-20250514",
     "claude-3-7-sonnet-20250219",
     "claude-3-5-sonnet-20241022",
@@ -39,7 +39,7 @@ class Settings:
     """Runtime settings resolved from the environment."""
 
     anthropic_api_key: str | None = None
-    model: str = "claude-opus-4-20250514"
+    model: str = "claude-opus-4-8"
     max_pdf_bytes: int = MAX_PDF_BYTES
     max_pdf_pages: int = MAX_PDF_PAGES
     max_questions: int = MAX_QUESTIONS
