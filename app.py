@@ -332,7 +332,7 @@ def main() -> None:
         key="model_choice",
         format_func=lambda name: f"{name} — {MODEL_CHOICES[name][1]}",
     )
-    selected_model_id = model_id_for_choice(model_choice)
+    selected_model_id = model_id_for_choice(str(model_choice or DEFAULT_MODEL_CHOICE))
     st.caption(f"Using model: {selected_model_id}")
 
     base_settings = load_settings(api_key_input or None)

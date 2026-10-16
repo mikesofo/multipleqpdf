@@ -29,6 +29,9 @@ MAX_UNCAPTIONED_DISTANCE_FRAC: float = 0.18
 CAPTION_PATTERN = r"(?i)\b(fig(?:ure)?\.?|plate|table|scheme)\b"
 # Minimum Jaccard token overlap for a caption-similarity (Tier 2) match.
 CAPTION_SIM_THRESHOLD: float = 0.25
+# When several captions compete, a candidate whose shared salient fraction is
+# below this floor is treated as dominated by unrelated entities and rejected.
+CAPTION_CONFLICT_FLOOR: float = 0.2
 # Minimum salient-term length (alphabetic) for lexical plausibility gating.
 MIN_SALIENT_LEN: int = 4
 # Common/caption-structural words that carry no topical signal and must not
@@ -76,6 +79,22 @@ def _passes_lexical_gate(query_text: str, caption_text: str) -> bool:
     if not q_terms or not c_terms:
         return False
     return bool(q_terms & c_terms)
+
+
+def _salient_overlap_score(query_text: str, caption_text: str) -> tuple[int, float]:
+    """Return (shared_salient_count, shared_fraction_of_caption).
+
+    ``shared_fraction_of_caption`` is the proportion of the caption's salient
+    terms that are shared with the query, used to detect captions dominated by
+    unrelated salient entities (contradiction penalty).
+    """
+    q_terms = _salient_terms(query_text)
+    c_terms = _salient_terms(caption_text)
+    if not q_terms or not c_terms:
+        return (0, 0.0)
+    shared = q_terms & c_terms
+    fraction = len(shared) / len(c_terms) if c_terms else 0.0
+    return (len(shared), fraction)
 # Matches figure labels like "Figure 3", "Fig. 2.1", "FIG 4A", "Figs. 1-2".
 FIGURE_LABEL_PATTERN = re.compile(
     r"(?i)\bfig(?:ure|s|\.)?\.?\s*([0-9]+(?:\.[0-9]+)*[a-z]?)"
@@ -541,21 +560,39 @@ def find_image_crop_by_caption(
     if not query:
         return None
     metas = extract_figure_metadata(pdf_bytes, page_number_1based, min_dim=min_dim)
-    best_meta: FigureMeta | None = None
-    best_sim = 0.0
+
+    # First pass: keep only captions that pass the hard lexical plausibility
+    # gate (share at least one strong salient concept/entity with the query).
+    eligible: list[tuple[FigureMeta, int, float, float]] = []
     for meta in metas:
         if not meta.caption_text:
             continue
-        # Hard lexical plausibility/conflict gate before semantic reranking:
-        # only captions sharing a salient content term are eligible.
         if not _passes_lexical_gate(query, meta.caption_text):
             continue
+        shared_count, shared_fraction = _salient_overlap_score(
+            query, meta.caption_text
+        )
         sim = _caption_similarity(query, meta.caption_text)
-        if sim > best_sim:
-            best_sim = sim
-            best_meta = meta
-    if best_meta is None or best_sim < threshold:
+        eligible.append((meta, shared_count, shared_fraction, sim))
+
+    if not eligible:
         return None
+
+    # Contradiction penalty: when multiple captions compete, drop candidates
+    # dominated by unrelated salient entities (low shared fraction). A lone
+    # plausible caption is kept regardless so short captions still match.
+    if len(eligible) > 1:
+        filtered = [
+            e for e in eligible if e[2] >= CAPTION_CONFLICT_FLOOR
+        ]
+        if filtered:
+            eligible = filtered
+
+    # Semantic reranking only among lexically plausible survivors: prefer more
+    # shared salient terms, then higher shared fraction, then Jaccard similarity.
+    best_meta = max(
+        eligible, key=lambda e: (e[1], e[2], e[3])
+    )[0]
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
         prect = doc[page_number_1based - 1].rect
     return _rect_to_crop(best_meta.image_bbox, prect, margin)

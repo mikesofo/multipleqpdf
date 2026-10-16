@@ -369,6 +369,45 @@ def test_select_image_crop_conflicting_caption_returns_no_image() -> None:
     assert crop is None
 
 
+def test_caption_match_shared_salient_concept_beats_other_caption() -> None:
+    # Two captioned figures; query shares a salient concept only with Figure 2.
+    data = make_pdf_with_labeled_figures()
+    crop = find_image_crop_by_caption(
+        data, 1, "Describe the myocardium fibers in this specimen."
+    )
+    assert crop is not None
+    assert crop.y0 > 0.5  # bottom figure (Myocardium)
+
+
+def test_caption_match_explicit_figure_number_match() -> None:
+    # Explicit figure-number reference remains highest priority via select_image_crop.
+    data = make_pdf_with_labeled_figures()
+    crop = select_image_crop(
+        data, 1, "unrelated support", extra_text="See Figure 2.", margin=0.0
+    )
+    assert crop is not None
+    assert crop.y0 > 0.5
+
+
+def test_caption_match_rejects_unrelated_salient_concepts() -> None:
+    # Query salient concepts do not appear in any caption -> reject.
+    data = make_pdf_with_labeled_figures()
+    crop = find_image_crop_by_caption(
+        data, 1, "Describe the hepatocyte canaliculus arrangement."
+    )
+    assert crop is None
+
+
+def test_caption_match_semantic_cannot_override_lexical_implausibility() -> None:
+    # Only stopword/structural overlap (no salient concept) -> reject even if
+    # token Jaccard is non-trivial.
+    data = make_pdf_with_matching_caption()  # "Lichen planus papules on the wrist."
+    crop = find_image_crop_by_caption(
+        data, 1, "The following figure is shown below at high power."
+    )
+    assert crop is None
+
+
 def test_extract_chapters_from_toc() -> None:
     data = make_pdf_with_toc(pages=6)
     chapters = extract_chapters(data)
