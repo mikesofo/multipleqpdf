@@ -75,6 +75,7 @@ def _autoselect_images(mcqs: list[MCQ], pdf_bytes: bytes, page_count: int) -> No
                         pdf_bytes,
                         effective_page,
                         mcq.source_support,
+                        extra_text=mcq.stem,
                     )
                 except (ValueError, RuntimeError):
                     matched_crop = None

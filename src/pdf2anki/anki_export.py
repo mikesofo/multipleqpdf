@@ -207,6 +207,7 @@ def export_apkg_bytes(
                         pdf_bytes,
                         effective_page,
                         mcq.source_support,
+                        extra_text=mcq.stem,
                     )
                 except (ValueError, RuntimeError):
                     crop = None
@@ -218,6 +219,7 @@ def export_apkg_bytes(
                             pdf_bytes,
                             effective_page,
                             mcq.source_support,
+                            extra_text=mcq.stem,
                         )
                         if crop is None:
                             crop = largest_image_crop(pdf_bytes, effective_page)

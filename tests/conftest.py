@@ -113,6 +113,23 @@ def make_pdf_with_nearby_and_far_images(
     return doc.tobytes()
 
 
+def make_pdf_with_labeled_figures() -> bytes:
+    """A 1-page PDF (400x900) with two captioned, figure-numbered images.
+
+    Top figure:   image at Rect(20,50,180,190), caption "Figure 1. Glomerulus."
+    Bottom figure: image at Rect(20,520,180,660), caption "Figure 2. Myocardium."
+    """
+    doc = fitz.open()
+    page = doc.new_page(width=400, height=900)
+    top = _png_bytes(120, 120, (10, 120, 60))
+    bot = _png_bytes(120, 120, (120, 10, 60))
+    page.insert_image(fitz.Rect(20, 50, 180, 190), stream=top)
+    page.insert_text((20, 210), "Figure 1. Glomerulus histology overview.")
+    page.insert_image(fitz.Rect(20, 520, 180, 660), stream=bot)
+    page.insert_text((20, 680), "Figure 2. Myocardium cross section detail.")
+    return doc.tobytes()
+
+
 def make_pdf_with_toc(pages: int = 6) -> bytes:
     """Create a PDF with a 3-chapter top-level outline (chapters at 1, 3, 5)."""
     doc = fitz.open()

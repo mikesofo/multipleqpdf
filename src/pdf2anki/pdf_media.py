@@ -27,6 +27,12 @@ CAPTION_DISTANCE_BONUS: float = 0.15
 # An uncaptioned candidate must be quite close to the anchor to be accepted.
 MAX_UNCAPTIONED_DISTANCE_FRAC: float = 0.18
 CAPTION_PATTERN = r"(?i)\b(fig(?:ure)?\.?|plate|table|scheme)\b"
+# Minimum Jaccard token overlap for a caption-similarity (Tier 2) match.
+CAPTION_SIM_THRESHOLD: float = 0.25
+# Matches figure labels like "Figure 3", "Fig. 2.1", "FIG 4A", "Figs. 1-2".
+FIGURE_LABEL_PATTERN = re.compile(
+    r"(?i)\bfig(?:ure|s|\.)?\.?\s*([0-9]+(?:\.[0-9]+)*[a-z]?)"
+)
 
 
 class PDFValidationError(ValueError):
@@ -40,6 +46,16 @@ class PDFInfo:
     pdf_hash: str
     page_count: int
     size_bytes: int
+
+
+@dataclass(frozen=True)
+class FigureMeta:
+    """Metadata describing a figure: its label, caption, page, and bbox."""
+
+    figure_label: str  # normalized, e.g. "figure 3" ("" if unlabeled)
+    caption_text: str
+    page_number: int  # 1-based
+    image_bbox: fitz.Rect
 
 
 @dataclass(frozen=True)
@@ -342,6 +358,158 @@ def _has_adjacent_caption(
     return False
 
 
+def _normalize_figure_refs(text: str) -> set[str]:
+    """Extract normalized figure labels from free text.
+
+    Returns a set like {"figure 3", "figure 2.1"}. Handles Figure/Fig./FIG./Figs.
+    and numbering such as 3, 3A, 2.1, 4.2.3 (case/punctuation-insensitive).
+    """
+    refs: set[str] = set()
+    for match in FIGURE_LABEL_PATTERN.finditer(text or ""):
+        number = match.group(1).lower().strip()
+        if number:
+            refs.add(f"figure {number}")
+    return refs
+
+
+def _tokenize(text: str) -> set[str]:
+    """Lowercase alphanumeric token set for similarity comparison."""
+    return {
+        tok
+        for tok in re.split(r"[^a-z0-9]+", (text or "").lower())
+        if len(tok) >= 3
+    }
+
+
+def _caption_similarity(a: str, b: str) -> float:
+    """Return Jaccard token-overlap similarity between two strings (0..1)."""
+    ta, tb = _tokenize(a), _tokenize(b)
+    if not ta or not tb:
+        return 0.0
+    inter = len(ta & tb)
+    union = len(ta | tb)
+    return inter / union if union else 0.0
+
+
+def _nearest_caption_for_image(
+    image_rect: fitz.Rect,
+    caption_rects: list[fitz.Rect],
+    caption_texts: list[str],
+    page_rect: fitz.Rect,
+) -> str:
+    """Return the text of a caption line adjacent to the image, or ""."""
+    gap = 0.06 * page_rect.height
+    for cap_rect, cap_text in zip(caption_rects, caption_texts, strict=True):
+        horiz = min(image_rect.x1, cap_rect.x1) - max(image_rect.x0, cap_rect.x0)
+        if horiz <= 0:
+            continue
+        below = 0 <= (cap_rect.y0 - image_rect.y1) <= gap
+        above = 0 <= (image_rect.y0 - cap_rect.y1) <= gap
+        if below or above:
+            return cap_text
+    return ""
+
+
+def _caption_lines(page: fitz.Page) -> tuple[list[fitz.Rect], list[str]]:
+    """Return (rects, texts) for caption-like lines on the page."""
+    rects: list[fitz.Rect] = []
+    texts: list[str] = []
+    try:
+        data = page.get_text("dict")
+    except Exception:
+        return rects, texts
+    for block in data.get("blocks", []):
+        for line in block.get("lines", []):
+            text = "".join(
+                span.get("text", "") for span in line.get("spans", [])
+            )
+            if re.search(CAPTION_PATTERN, text):
+                bbox = line.get("bbox")
+                if bbox:
+                    rects.append(fitz.Rect(bbox))
+                    texts.append(text.strip())
+    return rects, texts
+
+
+def extract_figure_metadata(
+    pdf_bytes: bytes,
+    page_number_1based: int,
+    min_dim: int = MIN_IMAGE_DIMENSION,
+) -> list[FigureMeta]:
+    """Extract figure metadata (label, caption, bbox) for images on a page."""
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        if page_number_1based < 1 or page_number_1based > doc.page_count:
+            raise ValueError(
+                f"Page {page_number_1based} out of range (1-{doc.page_count})."
+            )
+        page = doc[page_number_1based - 1]
+        prect = page.rect
+        cap_rects, cap_texts = _caption_lines(page)
+        metas: list[FigureMeta] = []
+        for r in _candidate_image_rects(doc, page, min_dim=min_dim):
+            caption = _nearest_caption_for_image(r, cap_rects, cap_texts, prect)
+            labels = _normalize_figure_refs(caption)
+            label = sorted(labels)[0] if labels else ""
+            metas.append(
+                FigureMeta(
+                    figure_label=label,
+                    caption_text=caption,
+                    page_number=page_number_1based,
+                    image_bbox=r,
+                )
+            )
+        return metas
+
+
+def find_image_crop_by_reference(
+    pdf_bytes: bytes,
+    page_number_1based: int,
+    query_text: str,
+    margin: float = 0.03,
+    min_dim: int = MIN_IMAGE_DIMENSION,
+) -> ImageCrop | None:
+    """Return the crop for the figure whose label is referenced in query_text."""
+    refs = _normalize_figure_refs(query_text)
+    if not refs:
+        return None
+    metas = extract_figure_metadata(pdf_bytes, page_number_1based, min_dim=min_dim)
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        prect = doc[page_number_1based - 1].rect
+    for meta in metas:
+        if meta.figure_label and meta.figure_label in refs:
+            return _rect_to_crop(meta.image_bbox, prect, margin)
+    return None
+
+
+def find_image_crop_by_caption(
+    pdf_bytes: bytes,
+    page_number_1based: int,
+    query_text: str,
+    margin: float = 0.03,
+    min_dim: int = MIN_IMAGE_DIMENSION,
+    threshold: float = CAPTION_SIM_THRESHOLD,
+) -> ImageCrop | None:
+    """Return the crop whose caption best matches query_text above threshold."""
+    query = (query_text or "").strip()
+    if not query:
+        return None
+    metas = extract_figure_metadata(pdf_bytes, page_number_1based, min_dim=min_dim)
+    best_meta: FigureMeta | None = None
+    best_sim = 0.0
+    for meta in metas:
+        if not meta.caption_text:
+            continue
+        sim = _caption_similarity(query, meta.caption_text)
+        if sim > best_sim:
+            best_sim = sim
+            best_meta = meta
+    if best_meta is None or best_sim < threshold:
+        return None
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        prect = doc[page_number_1based - 1].rect
+    return _rect_to_crop(best_meta.image_bbox, prect, margin)
+
+
 def largest_image_crop(
     pdf_bytes: bytes,
     page_number_1based: int,
@@ -499,19 +667,39 @@ def select_image_crop(
     page_number_1based: int,
     source_text: str,
     *,
+    extra_text: str = "",
     min_dim: int = MIN_IMAGE_DIMENSION,
     margin: float = 0.03,
     max_distance_frac: float = DEFAULT_MAX_DISTANCE_FRAC,
 ) -> ImageCrop | None:
-    """Pick an image crop for a page using a tiered fallback strategy.
+    """Pick an image crop for a page using a ranked, grounded strategy.
 
-    Tier 1/2: anchor on the source text (full string, then longest literal
-    fragments) and choose the nearest qualifying image within distance.
-    Tier 3: if no anchor matches, fall back to the single substantial image on
-    the page when (and only when) exactly one exists. Returns ``None`` when the
-    page has no usable image, or has several images and no reliable anchor
-    (preferring no image over an unrelated one).
+    Ranking order (first match wins):
+      1. Explicit figure-number reference (in ``source_text``/``extra_text``).
+      2. Figure-caption similarity to the question/support text.
+      3. Nearby paragraph/anchor-text proximity.
+      4. Lone substantial captioned image on the page.
+
+    Returns ``None`` when confidence is too low (preferring no image over a
+    wrong image).
     """
+    combined = f"{extra_text} {source_text}".strip()
+
+    # Tier 1: explicit figure-number reference match (highest confidence).
+    crop = find_image_crop_by_reference(
+        pdf_bytes, page_number_1based, combined, margin=margin, min_dim=min_dim
+    )
+    if crop is not None:
+        return crop
+
+    # Tier 2: figure-caption similarity match.
+    crop = find_image_crop_by_caption(
+        pdf_bytes, page_number_1based, combined, margin=margin, min_dim=min_dim
+    )
+    if crop is not None:
+        return crop
+
+    # Tier 3: nearby anchor/proximity text match.
     for query in _anchor_queries(source_text):
         crop = best_image_crop_for_text(
             pdf_bytes,
@@ -524,9 +712,7 @@ def select_image_crop(
         if crop is not None:
             return crop
 
-    # Tier 3: conservative page-level fallback for a lone substantial image,
-    # but only when it carries a caption-like label (relevance signal) to avoid
-    # attaching decorative or incidental photos.
+    # Tier 4: conservative page-level fallback for a lone captioned image.
     with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
         if page_number_1based < 1 or page_number_1based > doc.page_count:
             raise ValueError(

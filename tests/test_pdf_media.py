@@ -8,6 +8,7 @@ from conftest import (
     make_large_pdf_with_toc,
     make_pdf_with_captioned_image,
     make_pdf_with_image,
+    make_pdf_with_labeled_figures,
     make_pdf_with_nearby_and_far_images,
     make_pdf_with_toc,
     make_pdf_with_two_images,
@@ -19,6 +20,9 @@ from pdf2anki.pdf_media import (
     chunk_chapters,
     count_page_images,
     extract_chapters,
+    extract_figure_metadata,
+    find_image_crop_by_caption,
+    find_image_crop_by_reference,
     largest_image_crop,
     media_filename,
     plan_chapters,
@@ -253,6 +257,81 @@ def test_select_image_crop_no_fallback_with_multiple_unanchored_images() -> None
 def test_select_image_crop_none_on_text_only_page() -> None:
     data = _make_pdf(pages=1)
     assert select_image_crop(data, 1, "Page 1 content") is None
+
+
+def test_extract_figure_metadata_detects_labels_and_captions() -> None:
+    data = make_pdf_with_labeled_figures()
+    metas = extract_figure_metadata(data, 1)
+    labels = sorted(m.figure_label for m in metas)
+    assert labels == ["figure 1", "figure 2"]
+    captions = " ".join(m.caption_text for m in metas)
+    assert "Glomerulus" in captions
+    assert "Myocardium" in captions
+
+
+def test_tier1_explicit_figure_reference_match() -> None:
+    data = make_pdf_with_labeled_figures()
+    # Reference Figure 2 explicitly -> must select the bottom figure.
+    crop = find_image_crop_by_reference(
+        data, 1, "As shown in Figure 2, the tissue is striated.", margin=0.0
+    )
+    assert crop is not None
+    assert crop.y0 > 0.5
+
+
+def test_select_image_crop_prefers_referenced_figure() -> None:
+    data = make_pdf_with_labeled_figures()
+    # Support text references Figure 1 -> select the top figure, not the bottom.
+    crop = select_image_crop(
+        data, 1, "See Figure 1 for the structure described.", margin=0.0
+    )
+    assert crop is not None
+    assert crop.y1 < 0.5
+
+
+def test_select_image_crop_reference_in_extra_text() -> None:
+    data = make_pdf_with_labeled_figures()
+    # Figure ref only in the question stem (extra_text), not source_text.
+    crop = select_image_crop(
+        data,
+        1,
+        "unrelated supporting evidence",
+        extra_text="Which structure is shown in Fig. 2?",
+        margin=0.0,
+    )
+    assert crop is not None
+    assert crop.y0 > 0.5
+
+
+def test_tier2_caption_similarity_match_without_figure_number() -> None:
+    data = make_pdf_with_labeled_figures()
+    # No explicit figure number; caption-word overlap should pick Myocardium.
+    crop = find_image_crop_by_caption(
+        data,
+        1,
+        "This question is about the myocardium cross section detail.",
+        margin=0.0,
+    )
+    assert crop is not None
+    assert crop.y0 > 0.5
+
+
+def test_multiple_figures_different_captions_resolve_distinctly() -> None:
+    data = make_pdf_with_labeled_figures()
+    top = select_image_crop(data, 1, "Figure 1 glomerulus", margin=0.0)
+    bottom = select_image_crop(data, 1, "Figure 2 myocardium", margin=0.0)
+    assert top is not None and bottom is not None
+    assert top.y1 < 0.5
+    assert bottom.y0 > 0.5
+
+
+def test_low_confidence_returns_no_image() -> None:
+    data = make_pdf_with_labeled_figures()
+    # No figure reference, no caption overlap, no nearby anchor text match.
+    crop = select_image_crop(
+        data, 1, "entirely unrelated content with no overlap tokens"
+    )
+    assert crop is None
 
 
 def test_extract_chapters_from_toc() -> None:
