@@ -129,21 +129,43 @@ def _render_editor(
                         x0=0.0, y0=0.0, x1=1.0, y1=1.0
                     )
                     x0 = c0.slider(
-                        "x0", 0.0, 1.0, float(default_crop.x0), 0.01, key=f"x0_{mcq.id}_{idx}"
+                        "x0",
+                        0.0,
+                        1.0,
+                        float(default_crop.x0),
+                        0.01,
+                        key=f"x0_{mcq.id}_{idx}",
                     )
                     y0 = c1.slider(
-                        "y0", 0.0, 1.0, float(default_crop.y0), 0.01, key=f"y0_{mcq.id}_{idx}"
+                        "y0",
+                        0.0,
+                        1.0,
+                        float(default_crop.y0),
+                        0.01,
+                        key=f"y0_{mcq.id}_{idx}",
                     )
                     x1 = c2.slider(
-                        "x1", 0.0, 1.0, float(default_crop.x1), 0.01, key=f"x1_{mcq.id}_{idx}"
+                        "x1",
+                        0.0,
+                        1.0,
+                        float(default_crop.x1),
+                        0.01,
+                        key=f"x1_{mcq.id}_{idx}",
                     )
                     y1 = c3.slider(
-                        "y1", 0.0, 1.0, float(default_crop.y1), 0.01, key=f"y1_{mcq.id}_{idx}"
+                        "y1",
+                        0.0,
+                        1.0,
+                        float(default_crop.y1),
+                        0.01,
+                        key=f"y1_{mcq.id}_{idx}",
                     )
                     if x1 > x0 and y1 > y0:
                         image_crop = ImageCrop(x0=x0, y0=y0, x1=x1, y1=y1)
                     else:
-                        st.warning("Crop requires x1 > x0 and y1 > y0; falling back to full page.")
+                        st.warning(
+                            "Crop requires x1 > x0 and y1 > y0; falling back to full page."
+                        )
                         image_crop = None
                 else:
                     image_crop = None
