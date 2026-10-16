@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import sqlite3
 import tempfile
 import zipfile
 from pathlib import Path
-
-import re
 
 from conftest import make_sample_pdf
 from pdf2anki.anki_export import build_anki_model, build_note_fields, export_apkg_bytes
