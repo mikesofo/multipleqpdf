@@ -12,6 +12,7 @@ from .schemas import ImageCrop
 
 DEFAULT_DPI: int = 180
 MIN_IMAGE_DIMENSION: int = 64
+DEFAULT_MAX_DISTANCE_FRAC: float = 0.35
 
 
 class PDFValidationError(ValueError):
@@ -129,6 +130,59 @@ def count_page_images(
         return count
 
 
+def _candidate_image_rects(
+    doc: fitz.Document,
+    page: fitz.Page,
+    min_dim: int = MIN_IMAGE_DIMENSION,
+) -> list[fitz.Rect]:
+    """Return clipped page rectangles for all non-trivial images on `page`."""
+    prect = page.rect
+    candidates: list[fitz.Rect] = []
+    for img in page.get_images(full=True):
+        xref = img[0]
+        try:
+            info = doc.extract_image(xref)
+        except Exception:
+            continue
+        if info.get("width", 0) < min_dim or info.get("height", 0) < min_dim:
+            continue
+        try:
+            rects = page.get_image_rects(xref)
+        except Exception:
+            rects = []
+        for rect in rects:
+            r = fitz.Rect(rect) & prect
+            if not r.is_empty and r.width > 0 and r.height > 0:
+                candidates.append(r)
+    return candidates
+
+
+def _rect_to_crop(
+    rect: fitz.Rect, prect: fitz.Rect, margin: float
+) -> ImageCrop | None:
+    """Convert a page-space rect into a normalized, margin-expanded ImageCrop."""
+    x0 = (rect.x0 - prect.x0) / prect.width
+    y0 = (rect.y0 - prect.y0) / prect.height
+    x1 = (rect.x1 - prect.x0) / prect.width
+    y1 = (rect.y1 - prect.y0) / prect.height
+
+    x0 = max(0.0, x0 - margin)
+    y0 = max(0.0, y0 - margin)
+    x1 = min(1.0, x1 + margin)
+    y1 = min(1.0, y1 + margin)
+
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return ImageCrop(x0=x0, y0=y0, x1=x1, y1=y1)
+
+
+def _rect_distance(a: fitz.Rect, b: fitz.Rect) -> float:
+    """Return Euclidean gap between two axis-aligned rectangles (0 if overlapping)."""
+    dx = max(0.0, max(a.x0 - b.x1, b.x0 - a.x1))
+    dy = max(0.0, max(a.y0 - b.y1, b.y0 - a.y1))
+    return float((dx * dx + dy * dy) ** 0.5)
+
+
 def largest_image_crop(
     pdf_bytes: bytes,
     page_number_1based: int,
@@ -155,43 +209,84 @@ def largest_image_crop(
 
         best_area = 0.0
         best_rect: fitz.Rect | None = None
-        for img in page.get_images(full=True):
-            xref = img[0]
-            try:
-                info = doc.extract_image(xref)
-            except Exception:
-                continue
-            if info.get("width", 0) < min_dim or info.get("height", 0) < min_dim:
-                continue
-            try:
-                rects = page.get_image_rects(xref)
-            except Exception:
-                rects = []
-            for rect in rects:
-                r = fitz.Rect(rect) & prect
-                if r.is_empty:
-                    continue
-                area = r.width * r.height
-                if area > best_area:
-                    best_area = area
-                    best_rect = r
+        for r in _candidate_image_rects(doc, page, min_dim=min_dim):
+            area = r.width * r.height
+            if area > best_area:
+                best_area = area
+                best_rect = r
 
         if best_rect is None:
             return None
 
-        x0 = (best_rect.x0 - prect.x0) / prect.width
-        y0 = (best_rect.y0 - prect.y0) / prect.height
-        x1 = (best_rect.x1 - prect.x0) / prect.width
-        y1 = (best_rect.y1 - prect.y0) / prect.height
+        return _rect_to_crop(best_rect, prect, margin)
 
-        x0 = max(0.0, x0 - margin)
-        y0 = max(0.0, y0 - margin)
-        x1 = min(1.0, x1 + margin)
-        y1 = min(1.0, y1 + margin)
 
-        if x1 <= x0 or y1 <= y0:
+def best_image_crop_for_text(
+    pdf_bytes: bytes,
+    page_number_1based: int,
+    source_text: str,
+    *,
+    min_dim: int = MIN_IMAGE_DIMENSION,
+    margin: float = 0.03,
+    max_distance_frac: float = DEFAULT_MAX_DISTANCE_FRAC,
+) -> ImageCrop | None:
+    """Return a normalized crop for the image nearest to `source_text` on the page.
+
+    Locates `source_text` on the 1-based page via PyMuPDF text search. If the
+    text is empty or not found on the page, returns ``None`` (conservative: do
+    not guess when unanchored). Otherwise, finds all non-trivial candidate
+    images on the page, measures their rectangle-to-rectangle distance to the
+    text's bounding box normalized by the page diagonal, and selects the nearest
+    image within ``max_distance_frac`` (breaking ties by larger area).
+    """
+    query = (source_text or "").strip()
+    if not query:
+        return None
+
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        if page_number_1based < 1 or page_number_1based > doc.page_count:
+            raise ValueError(
+                f"Page {page_number_1based} out of range (1-{doc.page_count})."
+            )
+        page = doc[page_number_1based - 1]
+        prect = page.rect
+        if prect.width <= 0 or prect.height <= 0:
             return None
-        return ImageCrop(x0=x0, y0=y0, x1=x1, y1=y1)
+
+        candidates = _candidate_image_rects(doc, page, min_dim=min_dim)
+        if not candidates:
+            return None
+
+        hits = page.search_for(query)
+        if not hits:
+            return None
+
+        text_rect = fitz.Rect(hits[0])
+        for h in hits[1:]:
+            text_rect |= fitz.Rect(h)
+        text_rect &= prect
+        if text_rect.is_empty:
+            return None
+
+        diag = float((prect.width ** 2 + prect.height ** 2) ** 0.5)
+        if diag <= 0:
+            return None
+
+        best_rect: fitz.Rect | None = None
+        best_key: tuple[float, float] | None = None
+        for r in candidates:
+            norm_dist = _rect_distance(text_rect, r) / diag
+            if norm_dist > max_distance_frac:
+                continue
+            key = (norm_dist, -(r.width * r.height))
+            if best_key is None or key < best_key:
+                best_key = key
+                best_rect = r
+
+        if best_rect is None:
+            return None
+
+        return _rect_to_crop(best_rect, prect, margin)
 
 
 def render_page(

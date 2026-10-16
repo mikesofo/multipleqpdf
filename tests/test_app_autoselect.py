@@ -6,7 +6,7 @@ import app as app_module
 import pytest
 from app import _autoselect_images
 
-from conftest import make_pdf_with_image, make_sample_pdf
+from conftest import make_pdf_with_image, make_pdf_with_two_images, make_sample_pdf
 from pdf2anki.schemas import MCQ
 
 
@@ -27,6 +27,7 @@ def _mcq(**overrides: object) -> MCQ:
         correct_index=0,
         explanation="Because A.",
         source_pages=[1],
+        source_support="Page 1 content",
         image_required=False,
         image_page=None,
         image_crop=None,
@@ -91,3 +92,39 @@ def test_autoselect_overwrites_stale_false_widget_state(
     assert mcqs[0].image_required is True
     assert fake_session_state["imgreq_q1_0"] is True
     assert fake_session_state["imgpage_q1_0"] == 1
+
+
+def test_autoselect_does_not_enable_distant_unrelated_image(
+    fake_session_state: dict[str, object],
+) -> None:
+    import pymupdf as fitz
+
+    from conftest import _png_bytes
+
+    doc = fitz.open()
+    page = doc.new_page(width=400, height=800)
+    page.insert_text((20, 30), "Top text about unrelated topic")
+    png = _png_bytes(100, 100, (20, 40, 160))
+    page.insert_image(fitz.Rect(200, 640, 360, 780), stream=png)
+    pdf_bytes = doc.tobytes()
+
+    mcqs = [_mcq(source_pages=[1], source_support="Top text about unrelated topic")]
+    _autoselect_images(mcqs, pdf_bytes, page_count=1)
+    assert mcqs[0].image_required is False
+    assert fake_session_state["imgreq_q1_0"] is False
+
+
+def test_autoselect_picks_nearest_image_among_multiple(
+    fake_session_state: dict[str, object],
+) -> None:
+    pdf_bytes = make_pdf_with_two_images()
+    mcqs = [
+        _mcq(
+            source_pages=[1],
+            source_support="Top anchor text about glomerulus",
+        )
+    ]
+    _autoselect_images(mcqs, pdf_bytes, page_count=1)
+    assert mcqs[0].image_required is True
+    assert mcqs[0].image_crop is not None
+    assert mcqs[0].image_crop.y1 < 0.35

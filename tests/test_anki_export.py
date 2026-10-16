@@ -10,9 +10,10 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from conftest import make_pdf_with_image, make_sample_pdf
+from conftest import make_pdf_with_image, make_pdf_with_two_images, make_sample_pdf
 from pdf2anki.anki_export import build_anki_model, build_note_fields, export_apkg_bytes
 from pdf2anki.pdf_media import (
+    best_image_crop_for_text,
     compute_pdf_hash,
     largest_image_crop,
     media_filename,
@@ -184,6 +185,7 @@ def test_export_auto_attaches_when_source_page_has_image_even_if_not_required() 
         correct_index=1,
         explanation="Beta is the green square.",
         source_pages=[1],
+        source_support="Page 1 content",
         image_required=False,
         image_page=None,
         image_crop=None,
@@ -226,6 +228,86 @@ def test_export_auto_attaches_when_source_page_has_image_even_if_not_required() 
                 assert row is not None
                 note_fields = row[0].split("\x1f")
                 assert f'<img src="{expected_basename}"' in note_fields[7]
+
+
+def test_export_does_not_auto_attach_distant_unrelated_image() -> None:
+    import pymupdf as fitz
+
+    from conftest import _png_bytes
+
+    doc = fitz.open()
+    page = doc.new_page(width=400, height=800)
+    page.insert_text((20, 30), "Top text with no associated image")
+    png = _png_bytes(100, 100, (20, 40, 160))
+    page.insert_image(fitz.Rect(200, 640, 360, 780), stream=png)
+    pdf_bytes = doc.tobytes()
+    pdf_hash = compute_pdf_hash(pdf_bytes)
+
+    mcq = MCQ(
+        id="unrelated-img-q1",
+        learning_objective="Recall fact",
+        topic="Histology",
+        stem="What does the top text state?",
+        options=["Alpha", "Beta", "Gamma", "Delta"],
+        correct_index=0,
+        explanation="Alpha is stated at the top.",
+        source_pages=[1],
+        source_support="Top text with no associated image",
+        image_required=False,
+        image_page=None,
+        image_crop=None,
+    )
+
+    apkg_bytes = export_apkg_bytes(
+        mcqs=[mcq],
+        pdf_bytes=pdf_bytes,
+        pdf_hash=pdf_hash,
+        pdf_title="Histology Atlas",
+    )
+
+    with zipfile.ZipFile(io.BytesIO(apkg_bytes), "r") as zf:
+        media_map = json.loads(zf.read("media").decode("utf-8"))
+        assert media_map == {}
+
+
+def test_export_selects_nearest_image_among_multiple_on_page() -> None:
+    pdf_bytes = make_pdf_with_two_images()
+    pdf_hash = compute_pdf_hash(pdf_bytes)
+    support = "Top anchor text about glomerulus"
+    mcq = MCQ(
+        id="multi-img-q1",
+        learning_objective="Identify glomerulus",
+        topic="Renal",
+        stem="Which structure is near the top text?",
+        options=["Alpha", "Beta", "Gamma", "Delta"],
+        correct_index=0,
+        explanation="Alpha is the top figure.",
+        source_pages=[1],
+        source_support=support,
+        image_required=False,
+        image_page=None,
+        image_crop=None,
+    )
+
+    apkg_bytes = export_apkg_bytes(
+        mcqs=[mcq],
+        pdf_bytes=pdf_bytes,
+        pdf_hash=pdf_hash,
+        pdf_title="Renal Atlas",
+    )
+
+    expected_crop = best_image_crop_for_text(pdf_bytes, 1, support)
+    largest_crop = largest_image_crop(pdf_bytes, 1)
+    assert expected_crop is not None
+    assert largest_crop is not None
+    expected_name = media_filename(pdf_hash, 1, mcq.id, expected_crop)
+    wrong_largest_name = media_filename(pdf_hash, 1, mcq.id, largest_crop)
+    assert expected_name != wrong_largest_name
+
+    with zipfile.ZipFile(io.BytesIO(apkg_bytes), "r") as zf:
+        media_map = json.loads(zf.read("media").decode("utf-8"))
+        assert expected_name in media_map.values()
+        assert wrong_largest_name not in media_map.values()
 
 
 def test_export_apkg_omits_image_when_not_required() -> None:

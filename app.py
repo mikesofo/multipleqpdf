@@ -16,7 +16,7 @@ from pdf2anki.config import (
 )
 from pdf2anki.pdf_media import (
     PDFValidationError,
-    count_page_images,
+    best_image_crop_for_text,
     render_crop,
     validate_pdf,
 )
@@ -55,7 +55,7 @@ def _seed_image_widget_state(mcq: MCQ, idx: int, page_count: int) -> None:
 
 
 def _autoselect_images(mcqs: list[MCQ], pdf_bytes: bytes, page_count: int) -> None:
-    """Preselect images for generated MCQs whose source page has a real figure.
+    """Preselect images for generated MCQs whose source text is near a real figure.
 
     Mutates the list in place and seeds corresponding Streamlit widget state.
     Only fills in defaults when the model did not already request an image, so
@@ -70,12 +70,20 @@ def _autoselect_images(mcqs: list[MCQ], pdf_bytes: bytes, page_count: int) -> No
             )
             if effective_page is not None and (1 <= effective_page <= page_count):
                 try:
-                    has_image = count_page_images(pdf_bytes, effective_page) >= 1
+                    matched_crop = best_image_crop_for_text(
+                        pdf_bytes,
+                        effective_page,
+                        mcq.source_support,
+                    )
                 except (ValueError, RuntimeError):
-                    has_image = False
-                if has_image:
+                    matched_crop = None
+                if matched_crop is not None:
                     mcq = mcq.model_copy(
-                        update={"image_required": True, "image_page": effective_page}
+                        update={
+                            "image_required": True,
+                            "image_page": effective_page,
+                            "image_crop": mcq.image_crop or matched_crop,
+                        }
                     )
                     mcqs[i] = mcq
         _seed_image_widget_state(mcq, i, page_count)

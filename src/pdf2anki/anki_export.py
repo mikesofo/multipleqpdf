@@ -11,7 +11,7 @@ import genanki
 
 from .pdf_media import (
     DEFAULT_DPI,
-    count_page_images,
+    best_image_crop_for_text,
     largest_image_crop,
     media_filename,
     render_crop,
@@ -199,17 +199,28 @@ def export_apkg_bytes(
                 if mcq.image_page is not None
                 else (mcq.source_pages[0] if mcq.source_pages else None)
             )
+            crop = mcq.image_crop
             should_attach = mcq.image_required
             if not should_attach and effective_page is not None:
                 try:
-                    should_attach = count_page_images(pdf_bytes, effective_page) >= 1
+                    crop = best_image_crop_for_text(
+                        pdf_bytes,
+                        effective_page,
+                        mcq.source_support,
+                    )
                 except (ValueError, RuntimeError):
-                    should_attach = False
+                    crop = None
+                should_attach = crop is not None
             if should_attach and effective_page is not None:
-                crop = mcq.image_crop
                 if crop is None:
                     try:
-                        crop = largest_image_crop(pdf_bytes, effective_page)
+                        crop = best_image_crop_for_text(
+                            pdf_bytes,
+                            effective_page,
+                            mcq.source_support,
+                        )
+                        if crop is None:
+                            crop = largest_image_crop(pdf_bytes, effective_page)
                     except (ValueError, RuntimeError):
                         crop = None
                 try:

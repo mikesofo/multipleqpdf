@@ -49,6 +49,32 @@ def make_pdf_with_image(
     return doc.tobytes()
 
 
+def make_pdf_with_two_images(
+    image_width: int = 100,
+    image_height: int = 100,
+) -> bytes:
+    """Create a 1-page PDF (400x800) with top and bottom text + image pairs.
+
+    Top region:
+      - Text "Top anchor text about glomerulus" at (20, 30)
+      - Smaller image (80x80 box) at Rect(20, 50, 100, 130)
+    Bottom region (far away):
+      - Text "Bottom anchor text about myocardium" at (20, 620)
+      - Larger image (160x140 box) at Rect(200, 640, 360, 780)
+    """
+    doc = fitz.open()
+    page = doc.new_page(width=400, height=800)
+    top_png = _png_bytes(image_width, image_height, (10, 120, 60))
+    bot_png = _png_bytes(image_width, image_height, (120, 10, 60))
+
+    page.insert_text((20, 30), "Top anchor text about glomerulus")
+    page.insert_image(fitz.Rect(20, 50, 100, 130), stream=top_png)
+
+    page.insert_text((20, 620), "Bottom anchor text about myocardium")
+    page.insert_image(fitz.Rect(200, 640, 360, 780), stream=bot_png)
+    return doc.tobytes()
+
+
 @pytest.fixture
 def pdf_factory() -> Callable[..., bytes]:
     """Return a factory function that builds test PDFs."""

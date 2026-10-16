@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import make_pdf_with_image
+from conftest import make_pdf_with_image, make_pdf_with_two_images
 from conftest import make_sample_pdf as _make_pdf
 from pdf2anki.pdf_media import (
     PDFValidationError,
+    best_image_crop_for_text,
     count_page_images,
     largest_image_crop,
     media_filename,
@@ -129,3 +130,47 @@ def test_largest_image_crop_out_of_range_raises() -> None:
     data = _make_pdf(pages=1)
     with pytest.raises(ValueError, match="out of range"):
         largest_image_crop(data, 5)
+
+
+def test_best_image_crop_for_text_picks_nearest_over_largest() -> None:
+    data = make_pdf_with_two_images()
+    # Top image is smaller (80x80) than bottom image (160x140), but is right next
+    # to the top anchor text.
+    crop = best_image_crop_for_text(
+        data, 1, "Top anchor text about glomerulus", margin=0.0
+    )
+    assert crop is not None
+    # Top image sits in y=[50, 130] on an 800pt tall page -> y in [0.0625, 0.1625].
+    assert crop.y1 < 0.30
+
+    # Bottom anchor text should select the bottom image instead.
+    bot_crop = best_image_crop_for_text(
+        data, 1, "Bottom anchor text about myocardium", margin=0.0
+    )
+    assert bot_crop is not None
+    assert bot_crop.y0 > 0.70
+
+
+def test_best_image_crop_for_text_ignores_distant_unrelated_image() -> None:
+    # Single page (400x800): put text at the very top, image only at the bottom.
+    import pymupdf as fitz
+
+    from conftest import _png_bytes
+
+    doc = fitz.open()
+    page = doc.new_page(width=400, height=800)
+    page.insert_text((20, 30), "Isolated top paragraph with no figure nearby")
+    png = _png_bytes(100, 100, (20, 40, 160))
+    page.insert_image(fitz.Rect(200, 640, 360, 780), stream=png)
+    pdf_bytes = doc.tobytes()
+
+    crop = best_image_crop_for_text(
+        pdf_bytes, 1, "Isolated top paragraph with no figure nearby"
+    )
+    assert crop is None
+
+
+def test_best_image_crop_for_text_returns_none_without_anchor() -> None:
+    data = make_pdf_with_image(image_page_1based=1, pages=1)
+    assert best_image_crop_for_text(data, 1, "") is None
+    assert best_image_crop_for_text(data, 1, "text not on page") is None
