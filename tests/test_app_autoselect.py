@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import pytest
-
 import app as app_module
+import pytest
 from app import _autoselect_images
+
 from conftest import make_pdf_with_image, make_sample_pdf
 from pdf2anki.schemas import MCQ
 
