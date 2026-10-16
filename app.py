@@ -21,6 +21,7 @@ from pdf2anki.config import (
 )
 from pdf2anki.pdf_media import (
     PDFValidationError,
+    extract_figure_bundles,
     plan_chapters,
     render_crop,
     select_image_crop,
@@ -31,7 +32,9 @@ from pdf2anki.validators import validate_mcq
 from pdf2anki.workflow import (
     generate_deck,
     generate_figure_grounded_deck,
+    generate_mixed_deck,
     regenerate_single_mcq,
+    split_mixed_counts,
 )
 
 
@@ -419,11 +422,42 @@ def main() -> None:
 
     gen_mode = st.radio(
         "Generation mode",
-        options=["Text-based", "Figure-grounded"],
+        options=["Text-based", "Figure-grounded", "Mixed"],
         index=0,
         horizontal=True,
         key="generation_mode",
     )
+
+    figure_pct = 50
+    if gen_mode == "Mixed":
+        figure_pct = st.slider(
+            "Figure-grounded mix",
+            min_value=0,
+            max_value=100,
+            value=50,
+            step=5,
+            help="0% = all text-based, 100% = all figure-grounded.",
+        )
+        available_figures = len(
+            extract_figure_bundles(data, allowed_pages=selected_pages)
+        )
+        fig_n, text_n = split_mixed_counts(
+            max_questions, figure_pct, available_figures
+        )
+        st.caption(
+            f"Will generate {fig_n} figure-grounded and "
+            f"{text_n} text-based questions."
+        )
+        if available_figures == 0:
+            st.info(
+                "No captioned figures found in the selected pages; all "
+                "questions will be text-based."
+            )
+        elif fig_n < int(round(max_questions * figure_pct / 100.0)):
+            st.info(
+                "Fewer captioned figures are available than requested; the "
+                "remainder was shifted to text-based questions."
+            )
 
     client: AnthropicClient | None = None
     if settings.anthropic_api_key:
@@ -453,6 +487,16 @@ def main() -> None:
                         pdf_bytes=data,
                         page_count=pages,
                         max_questions=max_questions,
+                        allowed_pages=selected_pages,
+                    )
+                elif gen_mode == "Mixed":
+                    result = generate_mixed_deck(
+                        client=client,
+                        file_id=file_id,
+                        pdf_bytes=data,
+                        page_count=pages,
+                        total=max_questions,
+                        figure_pct=figure_pct,
                         allowed_pages=selected_pages,
                     )
                 else:

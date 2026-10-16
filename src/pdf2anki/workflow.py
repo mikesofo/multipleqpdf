@@ -184,6 +184,111 @@ def generate_deck(
     )
 
 
+def split_mixed_counts(
+    total: int,
+    figure_pct: int,
+    available_figures: int,
+) -> tuple[int, int]:
+    """Split ``total`` into (figure_grounded_count, text_based_count).
+
+    ``figure_pct`` is an integer 0-100. The figure count is the rounded portion
+    of the total, capped by both ``total`` and ``available_figures`` (limited
+    figures shift their remainder to text). The returned pair always sums to
+    exactly ``total``.
+    """
+    if total <= 0:
+        return (0, 0)
+    pct = max(0, min(100, figure_pct))
+    desired_fig = int(round(total * pct / 100.0))
+    fig = min(desired_fig, total, max(0, available_figures))
+    text = total - fig
+    return (fig, text)
+
+
+def generate_mixed_deck(
+    client: AnthropicClient,
+    file_id: str,
+    pdf_bytes: bytes,
+    page_count: int,
+    total: int,
+    figure_pct: int,
+    allowed_pages: set[int] | None = None,
+) -> GenerationResult:
+    """Generate a deck mixing figure-grounded and text-based questions.
+
+    The figure/text split is computed from ``figure_pct`` and capped by the
+    number of available captioned figure bundles, shifting any shortfall to the
+    text-based generator so the overall total is preserved exactly.
+    """
+    bundles = extract_figure_bundles(pdf_bytes, allowed_pages=allowed_pages)
+    available = len(bundles)
+    fig_n, text_n = split_mixed_counts(total, figure_pct, available)
+
+    mcqs: list[MCQ] = []
+    rejected: list[tuple[MCQ, ValidationResult]] = []
+    batch_errors: list[str] = []
+    figure_bundles: list[FigureBundle] = []
+    fig_plan: CoveragePlan | None = None
+    text_plan: CoveragePlan | None = None
+
+    if fig_n > 0:
+        fig_result = generate_figure_grounded_deck(
+            client=client,
+            file_id=file_id,
+            pdf_bytes=pdf_bytes,
+            page_count=page_count,
+            max_questions=fig_n,
+            allowed_pages=allowed_pages,
+        )
+        mcqs.extend(fig_result.mcqs)
+        rejected.extend(fig_result.rejected)
+        batch_errors.extend(fig_result.batch_errors)
+        figure_bundles = fig_result.figure_bundles
+        fig_plan = fig_result.plan
+
+    if text_n > 0:
+        text_result = generate_deck(
+            client=client,
+            file_id=file_id,
+            page_count=page_count,
+            max_questions=text_n,
+            allowed_pages=allowed_pages,
+        )
+        mcqs.extend(text_result.mcqs)
+        rejected.extend(text_result.rejected)
+        batch_errors.extend(text_result.batch_errors)
+        text_plan = text_result.plan
+
+    # Defensive cross-mode id dedup (prefixes differ, so collisions are rare).
+    seen: set[str] = set()
+    deduped: list[MCQ] = []
+    counter = 0
+    for mcq in mcqs:
+        candidate = mcq.id
+        while candidate in seen:
+            counter += 1
+            candidate = f"{mcq.id}-{counter}"
+        seen.add(candidate)
+        if candidate != mcq.id:
+            mcq.id = candidate
+        deduped.append(mcq)
+
+    plan = text_plan or fig_plan or CoveragePlan(
+        title="Mixed Deck",
+        subject="Mixed",
+        learner_level="student",
+        question_count=len(deduped),
+    )
+    return GenerationResult(
+        plan=plan,
+        mcqs=deduped,
+        rejected=rejected,
+        batch_errors=batch_errors,
+        figure_bundles=figure_bundles,
+        no_captioned_figures=(available == 0),
+    )
+
+
 def generate_figure_grounded_deck(
     client: AnthropicClient,
     file_id: str,

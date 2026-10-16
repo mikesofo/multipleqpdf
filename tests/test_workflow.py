@@ -15,8 +15,10 @@ from pdf2anki.workflow import (
     _batches,
     distribute_total,
     generate_deck,
+    generate_mixed_deck,
     shuffle_all_mcqs,
     shuffle_mcq_options,
+    split_mixed_counts,
 )
 
 
@@ -58,6 +60,35 @@ def test_distribute_total_handles_zero_weights() -> None:
 def test_distribute_total_proportional() -> None:
     # 1:3 ratio over 8 -> 2 and 6.
     assert distribute_total(8, [1.0, 3.0]) == [2, 6]
+
+
+def test_split_mixed_zero_percent_all_text() -> None:
+    assert split_mixed_counts(20, 0, available_figures=10) == (0, 20)
+
+
+def test_split_mixed_hundred_percent_all_figure() -> None:
+    assert split_mixed_counts(20, 100, available_figures=50) == (20, 0)
+
+
+def test_split_mixed_intermediate_split() -> None:
+    assert split_mixed_counts(20, 35, available_figures=50) == (7, 13)
+
+
+def test_split_mixed_rounding_preserves_total() -> None:
+    for pct in range(0, 101, 5):
+        fig, text = split_mixed_counts(20, pct, available_figures=100)
+        assert fig + text == 20
+        assert 0 <= fig <= 20
+
+
+def test_split_mixed_no_figures_falls_back_to_text() -> None:
+    assert split_mixed_counts(20, 100, available_figures=0) == (0, 20)
+    assert split_mixed_counts(20, 50, available_figures=0) == (0, 20)
+
+
+def test_split_mixed_limited_figures_caps_and_shifts() -> None:
+    # 80% of 20 = 16 desired figures, but only 5 available -> 5 figure, 15 text.
+    assert split_mixed_counts(20, 80, available_figures=5) == (5, 15)
 
 
 def _mcq_abcd(qid: str) -> MCQ:
@@ -243,6 +274,98 @@ def test_generate_deck_allows_large_total_and_sums_allocation() -> None:
     # Requested total of 200 is honored exactly (far above the old cap of 50).
     assert sum(calls) == 200
     assert len(result.mcqs) == 200
+
+
+def test_generate_mixed_deck_routes_counts_to_both_generators() -> None:
+    from conftest import make_pdf_with_labeled_figures
+
+    pdf_bytes = make_pdf_with_labeled_figures()  # 2 captioned figures
+
+    plan = CoveragePlan(
+        title="T",
+        subject="S",
+        learner_level="student",
+        question_count=10,
+        allocation=[TopicAllocation(topic="Alpha", question_count=1)],
+    )
+    client = MagicMock()
+    client.plan_coverage.return_value = plan
+
+    def _text_gen(**kwargs: object) -> MCQBatch:
+        count = int(kwargs["count"])  # type: ignore[call-overload]
+        prefix = str(kwargs["id_prefix"])
+        return MCQBatch(
+            questions=[_mcq(f"{prefix}{i}", "Alpha") for i in range(count)]
+        )
+
+    def _fig_gen(**kwargs: object) -> MCQBatch:
+        bundle = kwargs["bundle"]
+        count = int(kwargs["count"])  # type: ignore[call-overload]
+        prefix = str(kwargs["id_prefix"])
+        page = bundle.page_number  # type: ignore[attr-defined]
+        qs = []
+        for i in range(count):
+            q = _mcq(f"{prefix}{i}", "Fig")
+            q.source_pages = [page]
+            qs.append(q)
+        return MCQBatch(questions=qs)
+
+    client.generate_mcqs.side_effect = _text_gen
+    client.generate_figure_mcqs.side_effect = _fig_gen
+
+    result = generate_mixed_deck(
+        client=client,
+        file_id="f",
+        pdf_bytes=pdf_bytes,
+        page_count=5,
+        total=10,
+        figure_pct=20,  # -> 2 figure, 8 text
+        allowed_pages=None,
+    )
+
+    # Exactly 10 questions total, split 2 figure-grounded + 8 text-based.
+    assert len(result.mcqs) == 10
+    assert client.generate_figure_mcqs.call_count == 2
+    fig_ids = [m.id for m in result.mcqs if m.image_required]
+    assert len(fig_ids) == 2
+    assert result.no_captioned_figures is False
+
+
+def test_generate_mixed_deck_no_figures_all_text() -> None:
+    pdf_bytes = make_sample_pdf(pages=1)  # no captioned figures
+
+    plan = CoveragePlan(
+        title="T",
+        subject="S",
+        learner_level="student",
+        question_count=4,
+        allocation=[TopicAllocation(topic="Alpha", question_count=1)],
+    )
+    client = MagicMock()
+    client.plan_coverage.return_value = plan
+
+    def _text_gen(**kwargs: object) -> MCQBatch:
+        count = int(kwargs["count"])  # type: ignore[call-overload]
+        prefix = str(kwargs["id_prefix"])
+        return MCQBatch(
+            questions=[_mcq(f"{prefix}{i}", "Alpha") for i in range(count)]
+        )
+
+    client.generate_mcqs.side_effect = _text_gen
+
+    result = generate_mixed_deck(
+        client=client,
+        file_id="f",
+        pdf_bytes=pdf_bytes,
+        page_count=1,
+        total=4,
+        figure_pct=100,  # requested all-figure, but none available
+        allowed_pages=None,
+    )
+
+    assert len(result.mcqs) == 4
+    assert client.generate_figure_mcqs.call_count == 0
+    assert result.no_captioned_figures is True
 
 
 def test_generate_deck_without_allocation_uses_subject() -> None:
