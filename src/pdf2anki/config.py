@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 
@@ -16,9 +17,44 @@ except ModuleNotFoundError:  # pragma: no cover - dotenv optional at runtime
 MAX_PDF_BYTES: int = 32 * 1024 * 1024  # 32 MB per request
 MAX_PDF_PAGES: int = 600
 
-# Safety limit on generated questions to avoid runaway cost/output.
-MAX_QUESTIONS: int = 100
-DEFAULT_MAX_QUESTIONS: int = 50
+# Absolute hard ceiling on generated questions to avoid runaway cost/output.
+# The effective per-upload cap is computed dynamically from selected pages.
+MAX_QUESTIONS: int = 300
+DEFAULT_MAX_QUESTIONS: int = 20
+
+# (max_selected_pages_inclusive, max_questions) tiers; last tier is the ceiling.
+_MAX_CAP_TABLE: tuple[tuple[int, int], ...] = (
+    (25, 20),
+    (50, 35),
+    (100, 60),
+    (200, 100),
+    (350, 150),
+    (500, 220),
+)
+
+
+def max_questions_for_pages(selected_pages: int) -> int:
+    """Return the dynamic maximum question count for a selected page count."""
+    pages = max(0, selected_pages)
+    for threshold, cap in _MAX_CAP_TABLE:
+        if pages <= threshold:
+            return cap
+    return 300
+
+
+def recommended_range_for_pages(selected_pages: int) -> tuple[int, int]:
+    """Return a (low, high) recommended question range for a page count.
+
+    Low is ~1 question per 3 pages, high ~1 per 2 pages. The high value is the
+    raw recommendation and is not clamped to the table cap (the cap is applied
+    separately to the allowed maximum).
+    """
+    pages = max(0, selected_pages)
+    if pages == 0:
+        return (0, 0)
+    low = math.ceil(pages / 3)
+    high = math.ceil(pages / 2)
+    return (low, high)
 
 # Questions generated per MCQ batch when the plan requires many questions.
 QUESTIONS_PER_BATCH: int = 10

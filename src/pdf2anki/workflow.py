@@ -74,6 +74,33 @@ def _topic_slug(topic: str, index: int) -> str:
     return slug[:24]
 
 
+def distribute_total(total: int, weights: list[float]) -> list[int]:
+    """Split ``total`` across buckets proportional to ``weights``.
+
+    Uses the largest-remainder method so the returned integers sum exactly to
+    ``total``. Non-positive or empty weights fall back to an even split.
+    """
+    n = len(weights)
+    if total <= 0 or n == 0:
+        return [0] * n
+    clean = [w if w > 0 else 0.0 for w in weights]
+    weight_sum = sum(clean)
+    if weight_sum <= 0:
+        clean = [1.0] * n
+        weight_sum = float(n)
+
+    exact = [total * w / weight_sum for w in clean]
+    floors = [int(x) for x in exact]
+    remainder = total - sum(floors)
+    # Distribute the remaining units to the largest fractional parts.
+    order = sorted(
+        range(n), key=lambda i: (exact[i] - floors[i]), reverse=True
+    )
+    for i in range(remainder):
+        floors[order[i % n]] += 1
+    return floors
+
+
 def generate_deck(
     client: AnthropicClient,
     file_id: str,
@@ -95,22 +122,25 @@ def generate_deck(
     all_mcqs: list[MCQ] = []
     batch_errors: list[str] = []
 
-    # Build the effective allocation: use the plan's allocation if present,
-    # otherwise put the whole budget under the subject as a single topic.
-    effective: list[tuple[str, int]]
+    # Build the effective allocation: use the plan's allocation weights if
+    # present, otherwise a single subject bucket. Rescale so the per-topic
+    # counts sum to exactly ``max_questions``.
     if plan.allocation:
-        effective = [(a.topic, a.question_count) for a in plan.allocation]
+        topics = [a.topic for a in plan.allocation]
+        weights = [float(max(0, a.question_count)) for a in plan.allocation]
     else:
-        effective = [(plan.subject or "General", min(plan.question_count, max_questions))]
+        topics = [plan.subject or "General"]
+        weights = [1.0]
 
-    remaining = max_questions
+    counts = distribute_total(max_questions, weights)
+    effective: list[tuple[str, int]] = list(zip(topics, counts))
+
     seen_ids: set[str] = set()
     counter = 0
 
     for t_index, (topic, topic_count) in enumerate(effective):
-        if remaining <= 0:
-            break
-        topic_count = min(topic_count, remaining)
+        if topic_count <= 0:
+            continue
         for b_index, size in enumerate(_batches(topic_count, batch_size)):
             id_prefix = f"t{t_index}-{_topic_slug(topic, t_index)}-{b_index}-"
             try:
@@ -135,7 +165,6 @@ def generate_deck(
                 seen_ids.add(candidate_id)
                 mcq.id = candidate_id
                 all_mcqs.append(mcq)
-        remaining -= topic_count
 
     if not all_mcqs and batch_errors:
         raise RuntimeError("; ".join(batch_errors))

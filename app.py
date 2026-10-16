@@ -8,11 +8,11 @@ from pdf2anki.anki_export import OPTION_LABELS, export_apkg_bytes
 from pdf2anki.anthropic_client import AnthropicClient
 from pdf2anki.config import (
     ACCEPTED_MIME_TYPE,
-    DEFAULT_MAX_QUESTIONS,
     MAX_PDF_BYTES,
     MAX_PDF_PAGES,
-    MAX_QUESTIONS,
     load_settings,
+    max_questions_for_pages,
+    recommended_range_for_pages,
 )
 from pdf2anki.pdf_media import (
     PDFValidationError,
@@ -319,13 +319,6 @@ def main() -> None:
     )
     settings = load_settings(api_key_input or None)
 
-    max_questions = st.slider(
-        "Maximum questions",
-        min_value=1,
-        max_value=MAX_QUESTIONS,
-        value=DEFAULT_MAX_QUESTIONS,
-    )
-
     retain_remote = st.checkbox(
         "Temporarily retain the uploaded file on Anthropic (not recommended)",
         value=False,
@@ -374,6 +367,26 @@ def main() -> None:
                 f"Selected {len(chosen)} chapter(s), "
                 f"{len(selected_pages)} page(s)."
             )
+
+    selected_page_count = len(selected_pages) if selected_pages else pages
+    dynamic_max = max_questions_for_pages(selected_page_count)
+    rec_low, rec_high = recommended_range_for_pages(selected_page_count)
+    st.caption(
+        f"Selected content: {selected_page_count} page(s). "
+        f"Recommended ~{rec_low}-{rec_high} questions; allowed max {dynamic_max}."
+    )
+    default_total = min(max(rec_low, (rec_low + rec_high) // 2 or 1), dynamic_max)
+    max_questions = st.slider(
+        "Total questions (across all selected content)",
+        min_value=1,
+        max_value=dynamic_max,
+        value=max(1, default_total),
+    )
+    if max_questions > rec_high:
+        st.warning(
+            "Requested total exceeds the recommended range. High counts may "
+            "cause repetitive questions."
+        )
 
     client: AnthropicClient | None = None
     if settings.anthropic_api_key:

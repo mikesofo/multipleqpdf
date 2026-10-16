@@ -13,6 +13,7 @@ from pdf2anki.config import SUPPORTED_MODELS
 from pdf2anki.schemas import MCQ, CoveragePlan, MCQBatch, TopicAllocation
 from pdf2anki.workflow import (
     _batches,
+    distribute_total,
     generate_deck,
     shuffle_all_mcqs,
     shuffle_mcq_options,
@@ -36,7 +37,27 @@ def test_batches_splits_evenly() -> None:
     assert _batches(25, 10) == [10, 10, 5]
     assert _batches(0, 10) == []
     assert _batches(10, 10) == [10]
-    assert sum(_batches(500, 10)) == 100
+    assert sum(_batches(300, 10)) == 300
+
+
+def test_distribute_total_sums_exactly() -> None:
+    assert sum(distribute_total(220, [1.0, 1.0, 1.0])) == 220
+    assert sum(distribute_total(100, [5.0, 3.0, 2.0])) == 100
+    assert distribute_total(10, [1.0, 1.0]) == [5, 5]
+    assert distribute_total(0, [1.0, 2.0]) == [0, 0]
+    assert distribute_total(7, []) == []
+
+
+def test_distribute_total_handles_zero_weights() -> None:
+    # Zero total weight falls back to an even split that still sums exactly.
+    result = distribute_total(9, [0.0, 0.0, 0.0])
+    assert sum(result) == 9
+    assert max(result) - min(result) <= 1
+
+
+def test_distribute_total_proportional() -> None:
+    # 1:3 ratio over 8 -> 2 and 6.
+    assert distribute_total(8, [1.0, 3.0]) == [2, 6]
 
 
 def _mcq_abcd(qid: str) -> MCQ:
@@ -117,11 +138,11 @@ def test_generate_deck_runs_two_passes() -> None:
         client=client,
         file_id="file_123",
         page_count=10,
-        max_questions=50,
+        max_questions=4,
         batch_size=10,
     )
 
-    client.plan_coverage.assert_called_once_with("file_123", 50)
+    client.plan_coverage.assert_called_once_with("file_123", 4)
     assert client.generate_mcqs.call_count == 2
     assert [m.id for m in result.mcqs] == ["a1", "a2", "b1", "b2"]
     assert result.rejected == []
@@ -146,7 +167,7 @@ def test_generate_deck_filters_invalid() -> None:
         client=client,
         file_id="f",
         page_count=10,
-        max_questions=10,
+        max_questions=2,
         batch_size=10,
     )
 
@@ -175,7 +196,7 @@ def test_generate_deck_respects_allowed_pages() -> None:
         client=client,
         file_id="f",
         page_count=10,
-        max_questions=10,
+        max_questions=2,
         batch_size=10,
         allowed_pages={3, 4},
     )
@@ -185,6 +206,43 @@ def test_generate_deck_respects_allowed_pages() -> None:
     # focus_pages must be forwarded to the generation call.
     _, kwargs = client.generate_mcqs.call_args
     assert kwargs["focus_pages"] == [3, 4]
+
+
+def test_generate_deck_allows_large_total_and_sums_allocation() -> None:
+    plan = CoveragePlan(
+        title="T",
+        subject="S",
+        learner_level="student",
+        question_count=10,
+        allocation=[
+            TopicAllocation(topic="Alpha", question_count=1),
+            TopicAllocation(topic="Beta", question_count=1),
+        ],
+    )
+    client = MagicMock()
+    client.plan_coverage.return_value = plan
+    calls: list[int] = []
+
+    def _gen(**kwargs: object) -> MCQBatch:
+        count = int(kwargs["count"])  # type: ignore[call-overload]
+        calls.append(count)
+        prefix = str(kwargs["id_prefix"])
+        qs = [_mcq(f"{prefix}{i}", str(kwargs["topic"])) for i in range(count)]
+        return MCQBatch(questions=qs)
+
+    client.generate_mcqs.side_effect = _gen
+
+    result = generate_deck(
+        client=client,
+        file_id="f",
+        page_count=10,
+        max_questions=200,
+        batch_size=10,
+    )
+
+    # Requested total of 200 is honored exactly (far above the old cap of 50).
+    assert sum(calls) == 200
+    assert len(result.mcqs) == 200
 
 
 def test_generate_deck_without_allocation_uses_subject() -> None:
@@ -205,7 +263,7 @@ def test_generate_deck_without_allocation_uses_subject() -> None:
         client=client,
         file_id="f",
         page_count=10,
-        max_questions=10,
+        max_questions=1,
         batch_size=10,
     )
 
@@ -237,7 +295,7 @@ def test_generate_deck_recovers_from_partial_batch_failure_and_dedupes_ids() -> 
         client=client,
         file_id="f",
         page_count=10,
-        max_questions=10,
+        max_questions=4,
         batch_size=10,
     )
 
