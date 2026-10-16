@@ -18,7 +18,7 @@ def make_sample_pdf(pages: int = 2, encrypt: bool = False) -> bytes:
         page.draw_circle((100, 100), 40, color=(0, 0.5, 0))
     if encrypt:
         return doc.tobytes(
-            encryption=fitz.PDF_ENCRYPT_AES_256,
+            encryption=fitz.PDF_ENCRYPT_AES_256,  # type: ignore[attr-defined]
             owner_pw="owner",
             user_pw="secret",
         )

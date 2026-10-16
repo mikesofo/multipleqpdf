@@ -133,7 +133,7 @@ def generate_deck(
         weights = [1.0]
 
     counts = distribute_total(max_questions, weights)
-    effective: list[tuple[str, int]] = list(zip(topics, counts))
+    effective: list[tuple[str, int]] = list(zip(topics, counts, strict=True))
 
     seen_ids: set[str] = set()
     counter = 0

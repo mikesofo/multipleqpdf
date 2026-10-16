@@ -483,6 +483,14 @@ def _anchor_queries(source_text: str) -> list[str]:
         if len(frag) >= 12 and frag not in seen:
             seen.add(frag)
             queries.append(frag)
+        # Also try progressively left-trimmed variants so leading filler words
+        # (e.g. "see ...") do not prevent a literal page phrase from matching.
+        words = frag.split(" ")
+        for start in range(1, len(words)):
+            suffix = " ".join(words[start:]).strip()
+            if len(suffix) >= 12 and suffix not in seen:
+                seen.add(suffix)
+                queries.append(suffix)
     return queries
 
 
