@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from conftest import (
+    make_large_pdf_with_toc,
     make_pdf_with_captioned_image,
     make_pdf_with_image,
     make_pdf_with_nearby_and_far_images,
@@ -15,10 +16,12 @@ from conftest import make_sample_pdf as _make_pdf
 from pdf2anki.pdf_media import (
     PDFValidationError,
     best_image_crop_for_text,
+    chunk_chapters,
     count_page_images,
     extract_chapters,
     largest_image_crop,
     media_filename,
+    plan_chapters,
     render_crop,
     render_page,
     select_image_crop,
@@ -272,3 +275,36 @@ def test_chapter_ranges_computed_from_successive_entries() -> None:
 def test_extract_chapters_empty_without_toc() -> None:
     data = _make_pdf(pages=3)
     assert extract_chapters(data) == []
+
+
+def test_chunk_chapters_fixed_ranges() -> None:
+    chapters = chunk_chapters(60, chunk_size=25)
+    ranges = [(c.start_page, c.end_page) for c in chapters]
+    assert ranges == [(1, 25), (26, 50), (51, 60)]
+    titles = [c.title for c in chapters]
+    assert titles == ["Pages 1-25", "Pages 26-50", "Pages 51-60"]
+
+
+def test_plan_chapters_small_pdf_no_split() -> None:
+    # 25 pages or fewer -> whole-document flow (no chapters/chunks).
+    data = make_pdf_with_toc(pages=6)
+    assert plan_chapters(data) == []
+    data2 = _make_pdf(pages=10)
+    assert plan_chapters(data2) == []
+
+
+def test_plan_chapters_large_pdf_with_toc_uses_chapters() -> None:
+    data = make_large_pdf_with_toc(pages=40)
+    chapters = plan_chapters(data)
+    titles = [c.title for c in chapters]
+    ranges = [(c.start_page, c.end_page) for c in chapters]
+    assert titles == ["Alpha", "Beta", "Gamma"]
+    # Level-1 starts at 1, 15, 30 over 40 pages.
+    assert ranges == [(1, 14), (15, 29), (30, 40)]
+
+
+def test_plan_chapters_large_pdf_without_toc_uses_chunks() -> None:
+    data = _make_pdf(pages=55)
+    chapters = plan_chapters(data)
+    ranges = [(c.start_page, c.end_page) for c in chapters]
+    assert ranges == [(1, 25), (26, 50), (51, 55)]

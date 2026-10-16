@@ -13,6 +13,10 @@ from .schemas import ImageCrop
 
 DEFAULT_DPI: int = 180
 MIN_IMAGE_DIMENSION: int = 64
+# Documents at or below this page count use the whole-document flow (no splitting).
+SPLIT_PAGE_THRESHOLD: int = 25
+# Fixed chunk size (pages) used when a large PDF has no usable TOC/outline.
+CHUNK_SIZE: int = 25
 DEFAULT_MAX_DISTANCE_FRAC: float = 0.35
 # Minimum fraction of page area an image must cover to be considered a figure
 # rather than a decorative thumbnail/icon.
@@ -91,6 +95,48 @@ def extract_chapters(pdf_bytes: bytes) -> list[Chapter]:
             end = page_count
         chapters.append(Chapter(title=title, start_page=start, end_page=end))
     return chapters
+
+
+def chunk_chapters(page_count: int, chunk_size: int = CHUNK_SIZE) -> list[Chapter]:
+    """Split a document into fixed-size page chunks as pseudo-chapters.
+
+    Each chunk spans ``chunk_size`` pages (the last one may be shorter) and is
+    labeled "Pages START-END" with inclusive 1-based page ranges.
+    """
+    if page_count < 1 or chunk_size < 1:
+        return []
+    chapters: list[Chapter] = []
+    start = 1
+    while start <= page_count:
+        end = min(start + chunk_size - 1, page_count)
+        chapters.append(
+            Chapter(title=f"Pages {start}-{end}", start_page=start, end_page=end)
+        )
+        start = end + 1
+    return chapters
+
+
+def plan_chapters(
+    pdf_bytes: bytes,
+    split_threshold: int = SPLIT_PAGE_THRESHOLD,
+    chunk_size: int = CHUNK_SIZE,
+) -> list[Chapter]:
+    """Decide how to split a PDF for chapter/chunk selection.
+
+    - ``page_count`` at or below ``split_threshold``: return ``[]`` (whole-document flow).
+    - Above the threshold with a usable TOC/outline: return TOC-derived chapters.
+    - Above the threshold without a TOC: return fixed ``chunk_size``-page chunks.
+    """
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        page_count = doc.page_count
+
+    if page_count <= split_threshold:
+        return []
+
+    toc_chapters = extract_chapters(pdf_bytes)
+    if toc_chapters:
+        return toc_chapters
+    return chunk_chapters(page_count, chunk_size=chunk_size)
 
 
 def compute_pdf_hash(data: bytes) -> str:

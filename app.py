@@ -16,7 +16,7 @@ from pdf2anki.config import (
 )
 from pdf2anki.pdf_media import (
     PDFValidationError,
-    extract_chapters,
+    plan_chapters,
     render_crop,
     select_image_crop,
     validate_pdf,
@@ -353,10 +353,10 @@ def main() -> None:
     pages = pdf_info.page_count
     st.success(f"PDF accepted: {pages} page(s), {len(data) // 1024} KB.")
 
-    chapters = extract_chapters(data)
+    chapters = plan_chapters(data)
     selected_pages: set[int] | None = None
     if chapters:
-        st.subheader("Chapters detected")
+        st.subheader("Chapters / sections detected")
         labels = [
             f"{c.title} (pp. {c.start_page}-{c.end_page})" for c in chapters
         ]

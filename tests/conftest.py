@@ -129,6 +129,22 @@ def make_pdf_with_toc(pages: int = 6) -> bytes:
     return doc.tobytes()
 
 
+def make_large_pdf_with_toc(pages: int = 40) -> bytes:
+    """A >25-page PDF with level-1 chapters at pages 1, 15, and 30."""
+    doc = fitz.open()
+    for i in range(pages):
+        page = doc.new_page(width=200, height=200)
+        page.insert_text((20, 40), f"Page {i + 1} content")
+    toc = [
+        [1, "Alpha", 1],
+        [2, "Alpha sub", 5],
+        [1, "Beta", 15],
+        [1, "Gamma", 30],
+    ]
+    doc.set_toc(toc)
+    return doc.tobytes()
+
+
 @pytest.fixture
 def pdf_factory() -> Callable[..., bytes]:
     """Return a factory function that builds test PDFs."""
