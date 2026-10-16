@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from conftest import make_sample_pdf as _make_pdf
 
+from conftest import make_sample_pdf as _make_pdf
 from pdf2anki.pdf_media import (
     PDFValidationError,
     media_filename,
