@@ -41,30 +41,44 @@ def _parse_pages(raw: str) -> tuple[list[int], str | None]:
     return sorted(set(pages)), error
 
 
+def _seed_image_widget_state(mcq: MCQ, idx: int, page_count: int) -> None:
+    """Seed Streamlit widget session_state keys for an MCQ's image controls."""
+    st.session_state[f"imgreq_{mcq.id}_{idx}"] = bool(mcq.image_required)
+    default_page = (
+        mcq.image_page
+        if mcq.image_page and 1 <= mcq.image_page <= page_count
+        else (mcq.source_pages[0] if mcq.source_pages else 1)
+    )
+    st.session_state[f"imgpage_{mcq.id}_{idx}"] = min(
+        max(1, default_page), max(1, page_count)
+    )
+
+
 def _autoselect_images(mcqs: list[MCQ], pdf_bytes: bytes, page_count: int) -> None:
     """Preselect images for generated MCQs whose source page has a real figure.
 
-    Mutates the list in place. Only fills in defaults when the model did not
-    already request an image, so manual/model choices are preserved.
+    Mutates the list in place and seeds corresponding Streamlit widget state.
+    Only fills in defaults when the model did not already request an image, so
+    manual/model choices are preserved.
     """
     for i, mcq in enumerate(mcqs):
-        if mcq.image_required:
-            continue
-        effective_page = (
-            mcq.image_page
-            if mcq.image_page is not None
-            else (mcq.source_pages[0] if mcq.source_pages else None)
-        )
-        if effective_page is None or not (1 <= effective_page <= page_count):
-            continue
-        try:
-            has_image = count_page_images(pdf_bytes, effective_page) >= 1
-        except (ValueError, RuntimeError):
-            has_image = False
-        if has_image:
-            mcqs[i] = mcq.model_copy(
-                update={"image_required": True, "image_page": effective_page}
+        if not mcq.image_required:
+            effective_page = (
+                mcq.image_page
+                if mcq.image_page is not None
+                else (mcq.source_pages[0] if mcq.source_pages else None)
             )
+            if effective_page is not None and (1 <= effective_page <= page_count):
+                try:
+                    has_image = count_page_images(pdf_bytes, effective_page) >= 1
+                except (ValueError, RuntimeError):
+                    has_image = False
+                if has_image:
+                    mcq = mcq.model_copy(
+                        update={"image_required": True, "image_page": effective_page}
+                    )
+                    mcqs[i] = mcq
+        _seed_image_widget_state(mcq, i, page_count)
 
 
 def _render_editor(
@@ -126,10 +140,12 @@ def _render_editor(
             )
             parsed_pages, pages_parse_error = _parse_pages(pages_str)
 
+            imgreq_key = f"imgreq_{mcq.id}_{idx}"
+            if imgreq_key not in st.session_state:
+                st.session_state[imgreq_key] = bool(mcq.image_required)
             image_required = st.checkbox(
                 "Include image on card",
-                value=mcq.image_required,
-                key=f"imgreq_{mcq.id}_{idx}",
+                key=imgreq_key,
             )
 
             image_page = mcq.image_page
@@ -140,13 +156,17 @@ def _render_editor(
                     if mcq.image_page and 1 <= mcq.image_page <= page_count
                     else (parsed_pages[0] if parsed_pages else 1)
                 )
+                imgpage_key = f"imgpage_{mcq.id}_{idx}"
+                if imgpage_key not in st.session_state:
+                    st.session_state[imgpage_key] = min(
+                        max(1, default_page), max(1, page_count)
+                    )
                 image_page = int(
                     st.number_input(
                         "Image page (1-based)",
                         min_value=1,
                         max_value=max(1, page_count),
-                        value=min(max(1, default_page), max(1, page_count)),
-                        key=f"imgpage_{mcq.id}_{idx}",
+                        key=imgpage_key,
                     )
                 )
                 use_crop = st.checkbox(
