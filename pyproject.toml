@@ -37,7 +37,7 @@ src = ["src", "tests"]
 select = ["E", "F", "I", "W", "UP", "B"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "tests"]
+pythonpath = [".", "src", "tests"]
 testpaths = ["tests"]
 markers = [
     "integration: opt-in integration tests that call the live Anthropic API",
