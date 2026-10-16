@@ -6,8 +6,8 @@ import os
 from unittest.mock import MagicMock
 
 import pytest
-from conftest import make_sample_pdf
 
+from conftest import make_sample_pdf
 from pdf2anki.anthropic_client import AnthropicClient
 from pdf2anki.config import SUPPORTED_MODELS
 from pdf2anki.schemas import MCQ, CoveragePlan, MCQBatch, TopicAllocation
