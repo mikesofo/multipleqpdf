@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import make_pdf_with_image, make_pdf_with_two_images
+from conftest import (
+    make_pdf_with_captioned_image,
+    make_pdf_with_image,
+    make_pdf_with_nearby_and_far_images,
+    make_pdf_with_two_images,
+)
 from conftest import make_sample_pdf as _make_pdf
 from pdf2anki.pdf_media import (
     PDFValidationError,
@@ -198,11 +203,40 @@ def test_select_image_crop_tier2_anchors_on_fragment() -> None:
     assert crop.y1 < 0.35
 
 
-def test_select_image_crop_tier3_single_image_fallback() -> None:
-    # One substantial image, source text does not match anything on the page.
+def test_select_image_crop_tier3_requires_caption_for_fallback() -> None:
+    # One substantial but UNcaptioned image + non-matching text -> no fallback.
     data = make_pdf_with_image(image_page_1based=1, pages=1)
-    crop = select_image_crop(data, 1, "completely unrelated description")
-    assert crop is not None  # lone image -> conservative fallback
+    assert select_image_crop(data, 1, "completely unrelated description") is None
+
+
+def test_select_image_crop_tier3_captioned_single_image_fallback() -> None:
+    # One substantial CAPTIONED image + non-matching text -> fallback selects it.
+    data = make_pdf_with_captioned_image()
+    crop = select_image_crop(data, 1, "text that does not appear on the page")
+    assert crop is not None
+
+
+def test_select_image_crop_prefers_nearby_captioned_over_far_image() -> None:
+    data = make_pdf_with_nearby_and_far_images()
+    crop = select_image_crop(data, 1, "Top anchor text about glomerulus")
+    assert crop is not None
+    # Nearby captioned figure is in the top region, not the far bottom one.
+    assert crop.y0 < 0.35
+
+
+def test_select_image_crop_ignores_small_decorative_image() -> None:
+    # Top image is a tiny decorative thumbnail (area floor filters it); the only
+    # other image is far away and unrelated -> attach nothing.
+    data = make_pdf_with_nearby_and_far_images(small_decorative=True)
+    assert select_image_crop(data, 1, "Top anchor text about glomerulus") is None
+
+
+def test_captioned_image_selected_via_source_anchor() -> None:
+    data = make_pdf_with_captioned_image()
+    crop = best_image_crop_for_text(
+        data, 1, "Relevant lead-in text about the specimen"
+    )
+    assert crop is not None
 
 
 def test_select_image_crop_no_fallback_with_multiple_unanchored_images() -> None:

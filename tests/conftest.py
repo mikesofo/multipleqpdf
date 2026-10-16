@@ -75,6 +75,44 @@ def make_pdf_with_two_images(
     return doc.tobytes()
 
 
+def make_pdf_with_captioned_image(
+    image_width: int = 160,
+    image_height: int = 160,
+) -> bytes:
+    """A 1-page PDF (300x400) with a substantial image and a caption below it."""
+    doc = fitz.open()
+    page = doc.new_page(width=300, height=400)
+    png = _png_bytes(image_width, image_height, (10, 120, 60))
+    page.insert_text((20, 30), "Relevant lead-in text about the specimen")
+    page.insert_image(fitz.Rect(40, 60, 260, 280), stream=png)
+    page.insert_text((40, 300), "Figure 1. Photomicrograph of the specimen.")
+    return doc.tobytes()
+
+
+def make_pdf_with_nearby_and_far_images(
+    small_decorative: bool = False,
+) -> bytes:
+    """A tall 1-page PDF with a captioned figure near the top anchor text and a
+    far unrelated image at the bottom.
+
+    When ``small_decorative`` is True, the top image is a tiny decorative
+    thumbnail that should be ignored by the area floor.
+    """
+    doc = fitz.open()
+    page = doc.new_page(width=400, height=1000)
+    page.insert_text((20, 30), "Top anchor text about glomerulus")
+    if small_decorative:
+        thumb = _png_bytes(70, 70, (10, 120, 60))
+        page.insert_image(fitz.Rect(20, 50, 48, 78), stream=thumb)
+    else:
+        fig = _png_bytes(140, 140, (10, 120, 60))
+        page.insert_image(fitz.Rect(20, 50, 160, 190), stream=fig)
+        page.insert_text((20, 210), "Figure 2. Glomerulus at high power.")
+    far = _png_bytes(140, 140, (120, 10, 60))
+    page.insert_image(fitz.Rect(200, 840, 360, 980), stream=far)
+    return doc.tobytes()
+
+
 @pytest.fixture
 def pdf_factory() -> Callable[..., bytes]:
     """Return a factory function that builds test PDFs."""

@@ -6,7 +6,12 @@ import app as app_module
 import pytest
 from app import _autoselect_images
 
-from conftest import make_pdf_with_image, make_pdf_with_two_images, make_sample_pdf
+from conftest import (
+    make_pdf_with_captioned_image,
+    make_pdf_with_image,
+    make_pdf_with_two_images,
+    make_sample_pdf,
+)
 from pdf2anki.schemas import MCQ
 
 
@@ -118,12 +123,12 @@ def test_autoselect_does_not_enable_distant_unrelated_image(
     assert fake_session_state["imgreq_q1_0"] is False
 
 
-def test_autoselect_enables_single_relevant_figure_without_verbatim_anchor(
+def test_autoselect_enables_single_captioned_figure_without_verbatim_anchor(
     fake_session_state: dict[str, object],
 ) -> None:
-    # One substantial image on the page; source_support does not match page text
-    # verbatim, but the lone-image Tier 3 fallback should still select it.
-    pdf_bytes = make_pdf_with_image(image_page_1based=1, pages=1)
+    # One substantial CAPTIONED image; source_support does not match page text
+    # verbatim, but the captioned lone-image fallback should still select it.
+    pdf_bytes = make_pdf_with_captioned_image()
     mcqs = [
         _mcq(
             source_pages=[1],

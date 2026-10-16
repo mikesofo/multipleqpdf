@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 
 import pymupdf as fitz
@@ -13,6 +14,15 @@ from .schemas import ImageCrop
 DEFAULT_DPI: int = 180
 MIN_IMAGE_DIMENSION: int = 64
 DEFAULT_MAX_DISTANCE_FRAC: float = 0.35
+# Minimum fraction of page area an image must cover to be considered a figure
+# rather than a decorative thumbnail/icon.
+MIN_IMAGE_AREA_FRAC: float = 0.02
+# Distance reduction (in normalized-diagonal units) applied to a candidate that
+# has caption-like text adjacent to it. Acts as a relevance boost.
+CAPTION_DISTANCE_BONUS: float = 0.15
+# An uncaptioned candidate must be quite close to the anchor to be accepted.
+MAX_UNCAPTIONED_DISTANCE_FRAC: float = 0.18
+CAPTION_PATTERN = r"(?i)\b(fig(?:ure)?\.?|plate|table|scheme)\b"
 
 
 class PDFValidationError(ValueError):
@@ -134,9 +144,15 @@ def _candidate_image_rects(
     doc: fitz.Document,
     page: fitz.Page,
     min_dim: int = MIN_IMAGE_DIMENSION,
+    min_area_frac: float = MIN_IMAGE_AREA_FRAC,
 ) -> list[fitz.Rect]:
-    """Return clipped page rectangles for all non-trivial images on `page`."""
+    """Return clipped page rectangles for non-trivial, non-decorative images.
+
+    Images below ``min_dim`` in either source dimension or covering less than
+    ``min_area_frac`` of the page area are treated as decorative and excluded.
+    """
     prect = page.rect
+    page_area = float(prect.width * prect.height)
     candidates: list[fitz.Rect] = []
     for img in page.get_images(full=True):
         xref = img[0]
@@ -152,8 +168,11 @@ def _candidate_image_rects(
             rects = []
         for rect in rects:
             r = fitz.Rect(rect) & prect
-            if not r.is_empty and r.width > 0 and r.height > 0:
-                candidates.append(r)
+            if r.is_empty or r.width <= 0 or r.height <= 0:
+                continue
+            if page_area > 0 and (r.width * r.height) / page_area < min_area_frac:
+                continue
+            candidates.append(r)
     return candidates
 
 
@@ -181,6 +200,45 @@ def _rect_distance(a: fitz.Rect, b: fitz.Rect) -> float:
     dx = max(0.0, max(a.x0 - b.x1, b.x0 - a.x1))
     dy = max(0.0, max(a.y0 - b.y1, b.y0 - a.y1))
     return float((dx * dx + dy * dy) ** 0.5)
+
+
+def _caption_rects(page: fitz.Page) -> list[fitz.Rect]:
+    """Return bounding rects of lines whose text looks like a figure caption."""
+    rects: list[fitz.Rect] = []
+    try:
+        data = page.get_text("dict")
+    except Exception:
+        return rects
+    for block in data.get("blocks", []):
+        for line in block.get("lines", []):
+            text = "".join(
+                span.get("text", "") for span in line.get("spans", [])
+            )
+            if re.search(CAPTION_PATTERN, text):
+                bbox = line.get("bbox")
+                if bbox:
+                    rects.append(fitz.Rect(bbox))
+    return rects
+
+
+def _has_adjacent_caption(
+    image_rect: fitz.Rect,
+    caption_rects: list[fitz.Rect],
+    page_rect: fitz.Rect,
+) -> bool:
+    """True if a caption line sits just above or below the image, horizontally overlapping."""
+    if not caption_rects:
+        return False
+    gap = 0.06 * page_rect.height  # captions typically hug the figure
+    for cap in caption_rects:
+        horiz_overlap = min(image_rect.x1, cap.x1) - max(image_rect.x0, cap.x0)
+        if horiz_overlap <= 0:
+            continue
+        below = 0 <= (cap.y0 - image_rect.y1) <= gap
+        above = 0 <= (image_rect.y0 - cap.y1) <= gap
+        if below or above:
+            return True
+    return False
 
 
 def largest_image_crop(
@@ -272,13 +330,23 @@ def best_image_crop_for_text(
         if diag <= 0:
             return None
 
+        caption_rects = _caption_rects(page)
+
         best_rect: fitz.Rect | None = None
         best_key: tuple[float, float] | None = None
         for r in candidates:
             norm_dist = _rect_distance(text_rect, r) / diag
-            if norm_dist > max_distance_frac:
+            captioned = _has_adjacent_caption(r, caption_rects, prect)
+            # Uncaptioned candidates must be clearly close to the anchor.
+            dist_limit = (
+                max_distance_frac
+                if captioned
+                else min(max_distance_frac, MAX_UNCAPTIONED_DISTANCE_FRAC)
+            )
+            if norm_dist > dist_limit:
                 continue
-            key = (norm_dist, -(r.width * r.height))
+            score = norm_dist - (CAPTION_DISTANCE_BONUS if captioned else 0.0)
+            key = (score, -(r.width * r.height))
             if best_key is None or key < best_key:
                 best_key = key
                 best_rect = r
@@ -347,11 +415,20 @@ def select_image_crop(
         if crop is not None:
             return crop
 
-    # Tier 3: conservative page-level fallback for a lone substantial image.
-    if count_page_images(pdf_bytes, page_number_1based, min_dim=min_dim) == 1:
-        return largest_image_crop(
-            pdf_bytes, page_number_1based, min_dim=min_dim, margin=margin
-        )
+    # Tier 3: conservative page-level fallback for a lone substantial image,
+    # but only when it carries a caption-like label (relevance signal) to avoid
+    # attaching decorative or incidental photos.
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        if page_number_1based < 1 or page_number_1based > doc.page_count:
+            raise ValueError(
+                f"Page {page_number_1based} out of range (1-{doc.page_count})."
+            )
+        page = doc[page_number_1based - 1]
+        candidates = _candidate_image_rects(doc, page, min_dim=min_dim)
+        if len(candidates) == 1:
+            caption_rects = _caption_rects(page)
+            if _has_adjacent_caption(candidates[0], caption_rects, page.rect):
+                return _rect_to_crop(candidates[0], page.rect, margin)
     return None
 
 
