@@ -62,6 +62,7 @@ def _transient_exceptions() -> tuple[type[Exception], ...]:
 _TRANSIENT = _transient_exceptions()
 _RETRY_PREDICATE = retry_if_exception_type(_TRANSIENT) if _TRANSIENT else None
 
+
 def _retry_decorator(func: Any) -> Any:
     if _RETRY_PREDICATE is None:  # pragma: no cover
         return func
