@@ -5,6 +5,16 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from .config import SUPPORTED_MODELS
+from .pdf_media import validate_pdf
+from .prompts import (
+    COVERAGE_SYSTEM_PROMPT,
+    MCQ_SYSTEM_PROMPT,
+    coverage_user_prompt,
+    mcq_user_prompt,
+)
+from .schemas import CoveragePlan, MCQBatch
+
 logger = logging.getLogger("pdf2anki.anthropic")
 
 try:
@@ -35,15 +45,6 @@ except ModuleNotFoundError:  # pragma: no cover - fallback when tenacity absent
     def wait_exponential(*_args: Any, **_kwargs: Any) -> Any:  # type: ignore[no-redef]
         return None
 
-from .config import SUPPORTED_MODELS
-from .pdf_media import validate_pdf
-from .prompts import (
-    COVERAGE_SYSTEM_PROMPT,
-    MCQ_SYSTEM_PROMPT,
-    coverage_user_prompt,
-    mcq_user_prompt,
-)
-from .schemas import CoveragePlan, MCQBatch
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from anthropic import Anthropic
