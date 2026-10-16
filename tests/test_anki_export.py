@@ -10,7 +10,6 @@ import zipfile
 from pathlib import Path
 
 from conftest import make_sample_pdf
-
 from pdf2anki.anki_export import build_note_fields, export_apkg_bytes
 from pdf2anki.pdf_media import compute_pdf_hash, media_filename
 from pdf2anki.schemas import MCQ, ImageCrop
