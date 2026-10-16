@@ -89,8 +89,9 @@ def generate_deck(
             for mcq in batch.questions:
                 counter += 1
                 candidate_id = mcq.id.strip() or f"{id_prefix}{counter}"
-                if candidate_id in seen_ids:
+                while candidate_id in seen_ids:
                     candidate_id = f"{id_prefix}{counter}"
+                    counter += 1
                 seen_ids.add(candidate_id)
                 mcq.id = candidate_id
                 all_mcqs.append(mcq)
