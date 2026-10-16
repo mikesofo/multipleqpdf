@@ -62,7 +62,31 @@ QUESTIONS_PER_BATCH: int = 10
 
 ACCEPTED_MIME_TYPE: str = "application/pdf"
 
+# Friendly model-family names mapped to (API model id, short description).
+MODEL_CHOICES: dict[str, tuple[str, str]] = {
+    "Haiku": ("claude-haiku-5-5", "fastest / cheapest"),
+    "Sonnet": ("claude-sonnet-5-5", "balanced default"),
+    "Opus": ("claude-opus-5-5", "stronger reasoning"),
+    "Fable": ("claude-fable-5-1", "premium top tier"),
+}
+
+DEFAULT_MODEL_CHOICE: str = "Sonnet"
+
+
+def model_id_for_choice(choice: str) -> str:
+    """Map a friendly model-family name to its Claude API model id.
+
+    Falls back to the default (Sonnet) choice for unknown names.
+    """
+    entry = MODEL_CHOICES.get(choice) or MODEL_CHOICES[DEFAULT_MODEL_CHOICE]
+    return entry[0]
+
+
 SUPPORTED_MODELS: tuple[str, ...] = (
+    "claude-haiku-5-5",
+    "claude-sonnet-5-5",
+    "claude-opus-5-5",
+    "claude-fable-5-1",
     "claude-opus-4-8",
     "claude-sonnet-4-20250514",
     "claude-3-7-sonnet-20250219",
@@ -76,7 +100,7 @@ class Settings:
     """Runtime settings resolved from the environment."""
 
     anthropic_api_key: str | None = None
-    model: str = "claude-opus-4-8"
+    model: str = "claude-sonnet-5-5"
     max_pdf_bytes: int = MAX_PDF_BYTES
     max_pdf_pages: int = MAX_PDF_PAGES
     max_questions: int = MAX_QUESTIONS

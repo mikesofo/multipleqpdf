@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import streamlit as st
 
 from pdf2anki.anki_export import OPTION_LABELS, export_apkg_bytes
 from pdf2anki.anthropic_client import AnthropicClient
 from pdf2anki.config import (
     ACCEPTED_MIME_TYPE,
+    DEFAULT_MODEL_CHOICE,
     MAX_PDF_BYTES,
     MAX_PDF_PAGES,
+    MODEL_CHOICES,
     load_settings,
     max_questions_for_pages,
+    model_id_for_choice,
     recommended_range_for_pages,
 )
 from pdf2anki.pdf_media import (
@@ -318,7 +323,20 @@ def main() -> None:
         type="password",
         help="Read from ANTHROPIC_API_KEY if left blank.",
     )
-    settings = load_settings(api_key_input or None)
+
+    choice_names = list(MODEL_CHOICES.keys())
+    model_choice = st.selectbox(
+        "Claude model",
+        options=choice_names,
+        index=choice_names.index(DEFAULT_MODEL_CHOICE),
+        key="model_choice",
+        format_func=lambda name: f"{name} — {MODEL_CHOICES[name][1]}",
+    )
+    selected_model_id = model_id_for_choice(model_choice)
+    st.caption(f"Using model: {selected_model_id}")
+
+    base_settings = load_settings(api_key_input or None)
+    settings = replace(base_settings, model=selected_model_id)
 
     retain_remote = st.checkbox(
         "Temporarily retain the uploaded file on Anthropic (not recommended)",
