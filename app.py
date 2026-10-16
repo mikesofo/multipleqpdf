@@ -377,11 +377,11 @@ def main() -> None:
                 st.session_state["apkg_bytes"] = apkg_bytes
             except Exception as exc:
                 st.error(f"Failed to build Anki package: {exc}")
-        apkg_bytes = st.session_state.get("apkg_bytes")
-        if isinstance(apkg_bytes, bytes):
+        stored_apkg = st.session_state.get("apkg_bytes")
+        if isinstance(stored_apkg, bytes):
             st.download_button(
                 label="Download Anki Deck (.apkg)",
-                data=apkg_bytes,
+                data=stored_apkg,
                 file_name=f"{uploaded.name.rsplit('.', 1)[0]}.apkg",
                 mime="application/octet-stream",
             )
