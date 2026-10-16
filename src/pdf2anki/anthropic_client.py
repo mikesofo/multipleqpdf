@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
+
+logger = logging.getLogger("pdf2anki.anthropic")
 
 try:
     from tenacity import (
@@ -118,12 +121,51 @@ class AnthropicClient:
         except Exception:
             return False
 
-    def _file_content_block(self, file_id: str) -> dict[str, Any]:
-        """Build a document content block that references an uploaded file."""
-        return {
+    def _file_content_block(
+        self, file_id: str, cache: bool = False
+    ) -> dict[str, Any]:
+        """Build a document content block that references an uploaded file.
+
+        When ``cache`` is True, a prompt-cache breakpoint is attached so the
+        (large) document prefix is written once and read on later calls that
+        reuse the same prefix.
+        """
+        block: dict[str, Any] = {
             "type": "document",
             "source": {"type": "file", "file_id": file_id},
         }
+        if cache:
+            block["cache_control"] = {"type": "ephemeral"}
+        return block
+
+    def _system_blocks(self, system: str, cache: bool) -> Any:
+        """Return the system prompt, as cacheable blocks when requested."""
+        if not cache:
+            return system
+        return [
+            {
+                "type": "text",
+                "text": system,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+
+    @staticmethod
+    def _log_cache_usage(message: Any) -> None:
+        """Emit lightweight telemetry about prompt-cache hits, if available."""
+        usage = getattr(message, "usage", None)
+        if usage is None:
+            return
+        created = getattr(usage, "cache_creation_input_tokens", None)
+        read = getattr(usage, "cache_read_input_tokens", None)
+        if created is None and read is None:
+            return
+        logger.info(
+            "prompt_cache usage: created=%s read=%s input=%s",
+            created,
+            read,
+            getattr(usage, "input_tokens", None),
+        )
 
     @_retry_decorator
     def _parse(
@@ -134,21 +176,46 @@ class AnthropicClient:
         file_id: str,
         schema: type[Any],
         max_tokens: int = 8192,
+        cache: bool = False,
     ) -> Any:
-        """Call messages.parse with a document block and a response schema."""
+        """Call messages.parse with a document block and a response schema.
+
+        Stable content (document block, system prompt) is placed first and, when
+        ``cache`` is True, marked with a prompt-cache breakpoint. The variable
+        per-request text is appended after the cached prefix. If the installed
+        SDK does not support cache controls, the call is retried without them so
+        behavior is unchanged when caching is unavailable.
+        """
         content: list[dict[str, Any]] = [
-            self._file_content_block(file_id),
+            self._file_content_block(file_id, cache=cache),
             {"type": "text", "text": user_text},
         ]
         messages: Any = [{"role": "user", "content": content}]
         parse = self._client.beta.messages.parse
-        message = parse(
-            model=self._model,
-            max_tokens=max_tokens,
-            system=system,
-            messages=messages,
-            output_format=schema,
-        )
+
+        def _call(system_arg: Any, messages_arg: Any) -> Any:
+            return parse(
+                model=self._model,
+                max_tokens=max_tokens,
+                system=system_arg,
+                messages=messages_arg,
+                output_format=schema,
+            )
+
+        try:
+            message = _call(self._system_blocks(system, cache), messages)
+        except TypeError:
+            # Older SDK that does not understand cache_control shapes.
+            if cache:
+                plain_content: list[dict[str, Any]] = [
+                    self._file_content_block(file_id, cache=False),
+                    {"type": "text", "text": user_text},
+                ]
+                message = _call(system, [{"role": "user", "content": plain_content}])
+            else:
+                raise
+
+        self._log_cache_usage(message)
         parsed = getattr(message, "parsed_output", None)
         if parsed is None:
             parsed = getattr(message, "parsed", None)
@@ -172,7 +239,12 @@ class AnthropicClient:
         id_prefix: str,
         focus_pages: list[int] | None = None,
     ) -> MCQBatch:
-        """Run Pass 2 for a single topic batch and return validated MCQs."""
+        """Run Pass 2 for a single topic batch and return validated MCQs.
+
+        The document block and system prompt form a stable prefix reused across
+        every topic batch, so prompt caching is enabled to avoid re-sending the
+        full PDF on each batch.
+        """
         scaled_tokens = min(16384, max(2048, 1200 + 800 * max(1, count)))
         return self._parse(
             system=MCQ_SYSTEM_PROMPT,
@@ -182,4 +254,5 @@ class AnthropicClient:
             file_id=file_id,
             schema=MCQBatch,
             max_tokens=scaled_tokens,
+            cache=True,
         )
