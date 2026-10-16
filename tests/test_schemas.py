@@ -79,3 +79,60 @@ def test_image_crop_rejects_inverted_or_degenerate_rectangle() -> None:
 def test_mcq_batch_default_empty() -> None:
     batch = MCQBatch()
     assert batch.questions == []
+
+
+def test_text_based_mcq_clears_image_fields() -> None:
+    mcq = MCQ(
+        id="q1",
+        learning_objective="x",
+        topic="t",
+        stem="s",
+        options=["A", "B", "C", "D"],
+        correct_index=0,
+        explanation="e",
+        source_pages=[1],
+        question_type="text_based",
+        image_required=True,
+        image_page=3,
+        image_crop=ImageCrop(x0=0.0, y0=0.0, x1=0.5, y1=0.5),
+        image_alt_text="x",
+    )
+    assert mcq.image_required is False
+    assert mcq.image_page is None
+    assert mcq.image_crop is None
+    assert mcq.image_alt_text is None
+
+
+def test_figure_grounded_mcq_keeps_image_fields() -> None:
+    crop = ImageCrop(x0=0.0, y0=0.0, x1=0.5, y1=0.5)
+    mcq = MCQ(
+        id="q1",
+        learning_objective="x",
+        topic="t",
+        stem="s",
+        options=["A", "B", "C", "D"],
+        correct_index=0,
+        explanation="e",
+        source_pages=[1],
+        question_type="figure_grounded",
+        image_required=True,
+        image_page=3,
+        image_crop=crop,
+    )
+    assert mcq.image_required is True
+    assert mcq.image_page == 3
+    assert mcq.image_crop == crop
+
+
+def test_mcq_defaults_to_text_based() -> None:
+    mcq = MCQ(
+        id="q1",
+        learning_objective="x",
+        topic="t",
+        stem="s",
+        options=["A", "B", "C", "D"],
+        correct_index=0,
+        explanation="e",
+        source_pages=[1],
+    )
+    assert mcq.question_type == "text_based"

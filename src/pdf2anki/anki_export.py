@@ -201,7 +201,10 @@ def export_apkg_bytes(
                 else (mcq.source_pages[0] if mcq.source_pages else None)
             )
             crop = mcq.image_crop
-            if mcq.image_required and effective_page is not None:
+            is_figure = (
+                mcq.question_type == "figure_grounded" and mcq.image_required
+            )
+            if is_figure and effective_page is not None:
                 try:
                     png_bytes = render_crop(
                         pdf_bytes,

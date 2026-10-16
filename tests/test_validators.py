@@ -59,7 +59,12 @@ def test_rejects_missing_source_pages() -> None:
 
 def test_image_required_without_page_fails() -> None:
     result = validate_mcq(
-        _mcq(image_required=True, image_page=None), page_count=10
+        _mcq(
+            question_type="figure_grounded",
+            image_required=True,
+            image_page=None,
+        ),
+        page_count=10,
     )
     assert not result.is_valid
     assert any("image_page" in e.lower() for e in result.errors)
@@ -67,7 +72,12 @@ def test_image_required_without_page_fails() -> None:
 
 def test_image_required_out_of_range_page_fails() -> None:
     result = validate_mcq(
-        _mcq(image_required=True, image_page=50), page_count=10
+        _mcq(
+            question_type="figure_grounded",
+            image_required=True,
+            image_page=50,
+        ),
+        page_count=10,
     )
     assert not result.is_valid
 
@@ -75,6 +85,7 @@ def test_image_required_out_of_range_page_fails() -> None:
 def test_image_required_valid() -> None:
     result = validate_mcq(
         _mcq(
+            question_type="figure_grounded",
             image_required=True,
             image_page=2,
             image_crop=ImageCrop(x0=0.0, y0=0.0, x1=0.5, y1=0.5),

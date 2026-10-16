@@ -166,8 +166,14 @@ def generate_deck(
                     candidate_id = f"{id_prefix}{counter}"
                     counter += 1
                 seen_ids.add(candidate_id)
-                mcq.id = candidate_id
-                all_mcqs.append(mcq)
+                # Hard invariant: text-based questions never carry image data.
+                # Re-validate so the model validator clears any image fields the
+                # model set (model_copy alone does not re-run validators).
+                data = mcq.model_dump()
+                data["id"] = candidate_id
+                data["question_type"] = "text_based"
+                stamped = MCQ.model_validate(data)
+                all_mcqs.append(stamped)
 
     if not all_mcqs and batch_errors:
         raise RuntimeError("; ".join(batch_errors))
@@ -354,6 +360,7 @@ def generate_figure_grounded_deck(
             stamped = mcq.model_copy(
                 update={
                     "id": candidate_id,
+                    "question_type": "figure_grounded",
                     "source_pages": [bundle.page_number],
                     "source_support": mcq.source_support or bundle.caption_text,
                     "image_required": True,

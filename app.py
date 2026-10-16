@@ -83,6 +83,12 @@ def _autoselect_images(
     set ``image_required`` are preserved regardless.
     """
     for i, mcq in enumerate(mcqs):
+        # Text-based questions are image-free by invariant: never run image
+        # selection, and force-clear any stale widget state from a prior run.
+        if mcq.question_type == "text_based":
+            st.session_state[f"imgreq_{mcq.id}_{i}"] = False
+            st.session_state.pop(f"imgpage_{mcq.id}_{i}", None)
+            continue
         if promote and not mcq.image_required:
             effective_page = (
                 mcq.image_page
@@ -171,17 +177,23 @@ def _render_editor(
             )
             parsed_pages, pages_parse_error = _parse_pages(pages_str)
 
-            imgreq_key = f"imgreq_{mcq.id}_{idx}"
-            if imgreq_key not in st.session_state:
-                st.session_state[imgreq_key] = bool(mcq.image_required)
-            image_required = st.checkbox(
-                "Include image on card",
-                key=imgreq_key,
-            )
-
-            image_page = mcq.image_page
-            image_crop = mcq.image_crop
-            if image_required:
+            is_figure_grounded = mcq.question_type == "figure_grounded"
+            if not is_figure_grounded:
+                st.caption("Text-based question (no image).")
+                image_required = False
+                image_page = None
+                image_crop = None
+            else:
+                imgreq_key = f"imgreq_{mcq.id}_{idx}"
+                if imgreq_key not in st.session_state:
+                    st.session_state[imgreq_key] = bool(mcq.image_required)
+                image_required = st.checkbox(
+                    "Include image on card",
+                    key=imgreq_key,
+                )
+                image_page = mcq.image_page
+                image_crop = mcq.image_crop
+            if is_figure_grounded and image_required:
                 default_page = (
                     mcq.image_page
                     if mcq.image_page and 1 <= mcq.image_page <= page_count
@@ -511,6 +523,13 @@ def main() -> None:
                         allowed_pages=selected_pages,
                     )
             generated = list(result.mcqs)
+            # Clear any stale per-question image widget state from a prior run
+            # or mode switch so old image components cannot leak through.
+            for key in list(st.session_state.keys()):
+                if isinstance(key, str) and (
+                    key.startswith("imgreq_") or key.startswith("imgpage_")
+                ):
+                    st.session_state.pop(key, None)
             # Text-based mode must never auto-attach images; figure-grounded and
             # mixed modes already carry image_required on their figure subset.
             _autoselect_images(

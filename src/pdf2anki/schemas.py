@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -43,7 +45,13 @@ class ImageCrop(BaseModel):
 
 
 class MCQ(BaseModel):
-    """A single multiple-choice question."""
+    """A single multiple-choice question.
+
+    ``question_type`` is a hard invariant: ``text_based`` questions may never
+    carry any image data. The validator below clears all image fields for
+    text-based questions regardless of what a model returned, so image leakage
+    into text-only mode is structurally impossible.
+    """
 
     id: str
     learning_objective: str
@@ -54,10 +62,20 @@ class MCQ(BaseModel):
     explanation: str
     source_pages: list[int] = Field(default_factory=list)
     source_support: str = ""
+    question_type: Literal["text_based", "figure_grounded"] = "text_based"
     image_required: bool = False
     image_page: int | None = None
     image_crop: ImageCrop | None = None
     image_alt_text: str | None = None
+
+    @model_validator(mode="after")
+    def _enforce_text_based_has_no_image(self) -> MCQ:
+        if self.question_type == "text_based":
+            object.__setattr__(self, "image_required", False)
+            object.__setattr__(self, "image_page", None)
+            object.__setattr__(self, "image_crop", None)
+            object.__setattr__(self, "image_alt_text", None)
+        return self
 
 
 class MCQBatch(BaseModel):

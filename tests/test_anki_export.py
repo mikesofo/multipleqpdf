@@ -55,6 +55,7 @@ def test_build_note_fields_escapes_malicious_html() -> None:
         correct_index=0,
         explanation="Because <script>bad()</script>.",
         source_pages=[1],
+        question_type="figure_grounded",
         image_required=True,
         image_page=1,
         image_alt_text='Alt "quote" <tag>',
@@ -84,6 +85,7 @@ def test_export_apkg_embeds_image_media() -> None:
         correct_index=1,
         explanation="Beta is the green circle.",
         source_pages=[1],
+        question_type="figure_grounded",
         image_required=True,
         image_page=1,
         image_crop=crop,
@@ -133,6 +135,7 @@ def test_export_apkg_auto_attaches_from_source_pages_when_image_page_missing() -
         correct_index=1,
         explanation="Beta is the green circle.",
         source_pages=[1],
+        question_type="figure_grounded",
         image_required=True,
         image_page=None,
         image_crop=None,
@@ -223,6 +226,7 @@ def test_export_figure_grounded_question_renders_image() -> None:
         correct_index=1,
         explanation="Beta is the green square.",
         source_pages=[1],
+        question_type="figure_grounded",
         image_required=True,
         image_page=1,
         image_crop=crop,
@@ -323,6 +327,44 @@ def test_export_text_based_multi_image_page_stays_text_only() -> None:
         pdf_title="Renal Atlas",
     )
 
+    with zipfile.ZipFile(io.BytesIO(apkg_bytes), "r") as zf:
+        media_map = json.loads(zf.read("media").decode("utf-8"))
+        assert media_map == {}
+
+
+def test_text_based_mcq_scrubs_image_fields_and_export_has_no_media() -> None:
+    # Even if image fields are passed, a text_based MCQ must clear them and the
+    # export must contain no media.
+    pdf_bytes = make_pdf_with_image(image_page_1based=1, pages=1)
+    pdf_hash = compute_pdf_hash(pdf_bytes)
+    crop = ImageCrop(x0=0.1, y0=0.1, x1=0.9, y1=0.9)
+    mcq = MCQ(
+        id="scrub-q1",
+        learning_objective="obj",
+        topic="Topic",
+        stem="Which statement is true?",
+        options=["Alpha", "Beta", "Gamma", "Delta"],
+        correct_index=0,
+        explanation="Alpha is true.",
+        source_pages=[1],
+        question_type="text_based",
+        image_required=True,
+        image_page=1,
+        image_crop=crop,
+        image_alt_text="should be cleared",
+    )
+    # Invariant enforced at construction.
+    assert mcq.image_required is False
+    assert mcq.image_page is None
+    assert mcq.image_crop is None
+    assert mcq.image_alt_text is None
+
+    apkg_bytes = export_apkg_bytes(
+        mcqs=[mcq],
+        pdf_bytes=pdf_bytes,
+        pdf_hash=pdf_hash,
+        pdf_title="Doc",
+    )
     with zipfile.ZipFile(io.BytesIO(apkg_bytes), "r") as zf:
         media_map = json.loads(zf.read("media").decode("utf-8"))
         assert media_map == {}

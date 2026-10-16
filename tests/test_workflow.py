@@ -326,8 +326,18 @@ def test_generate_mixed_deck_routes_counts_to_both_generators() -> None:
     # Exactly 10 questions total, split 2 figure-grounded + 8 text-based.
     assert len(result.mcqs) == 10
     assert client.generate_figure_mcqs.call_count == 2
-    fig_ids = [m.id for m in result.mcqs if m.image_required]
-    assert len(fig_ids) == 2
+    fig = [m for m in result.mcqs if m.question_type == "figure_grounded"]
+    text = [m for m in result.mcqs if m.question_type == "text_based"]
+    assert len(fig) == 2
+    assert len(text) == 8
+    # Only figure-grounded questions carry image data; text-based are image-free.
+    assert all(m.image_required and m.image_crop is not None for m in fig)
+    assert all(
+        not m.image_required
+        and m.image_page is None
+        and m.image_crop is None
+        for m in text
+    )
     assert result.no_captioned_figures is False
 
 
@@ -366,6 +376,39 @@ def test_generate_mixed_deck_no_figures_all_text() -> None:
     assert len(result.mcqs) == 4
     assert client.generate_figure_mcqs.call_count == 0
     assert result.no_captioned_figures is True
+
+
+def test_generate_deck_marks_text_based_and_strips_images() -> None:
+    plan = CoveragePlan(
+        title="T",
+        subject="S",
+        learner_level="student",
+        question_count=1,
+        allocation=[TopicAllocation(topic="Alpha", question_count=1)],
+    )
+    client = MagicMock()
+    client.plan_coverage.return_value = plan
+    # Claude returns a question that (wrongly) requests an image.
+    leaky = _mcq("leaky", "Alpha")
+    leaky.question_type = "figure_grounded"
+    leaky.image_required = True
+    leaky.image_page = 1
+    client.generate_mcqs.return_value = MCQBatch(questions=[leaky])
+
+    result = generate_deck(
+        client=client,
+        file_id="f",
+        page_count=10,
+        max_questions=1,
+        batch_size=10,
+    )
+
+    assert len(result.mcqs) == 1
+    out = result.mcqs[0]
+    assert out.question_type == "text_based"
+    assert out.image_required is False
+    assert out.image_page is None
+    assert out.image_crop is None
 
 
 def test_generate_deck_without_allocation_uses_subject() -> None:
