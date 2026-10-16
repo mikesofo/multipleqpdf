@@ -26,6 +26,31 @@ def _sample_pdf() -> bytes:
     return make_sample_pdf(pages=1)
 
 
+def test_export_uses_shuffled_order_consistently() -> None:
+    from pdf2anki.workflow import shuffle_mcq_options
+
+    original = MCQ(
+        id="shuf-q1",
+        learning_objective="obj",
+        topic="Topic",
+        stem="Which is correct?",
+        options=["CorrectAns", "W1", "W2", "W3"],
+        correct_index=0,
+        explanation="CorrectAns is right.",
+        source_pages=[1],
+    )
+    shuffled = shuffle_mcq_options(original, seed_key="seed:shuf-q1")
+    fields = build_note_fields(shuffled, pdf_title="Doc")
+
+    # Field layout: 3..6 are OptionA..OptionD, field 8 is CorrectAnswer.
+    option_fields = fields[3:7]
+    correct_label = fields[8].split(".")[0]
+    label_to_index = {"A": 0, "B": 1, "C": 2, "D": 3}
+    idx = label_to_index[correct_label]
+    assert option_fields[idx] == "CorrectAns"
+    assert fields[8] == f"{correct_label}. CorrectAns"
+
+
 def test_build_note_fields_escapes_malicious_html() -> None:
     mcq = MCQ(
         id="q<1>",

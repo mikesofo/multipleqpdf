@@ -11,7 +11,12 @@ from conftest import make_sample_pdf
 from pdf2anki.anthropic_client import AnthropicClient
 from pdf2anki.config import SUPPORTED_MODELS
 from pdf2anki.schemas import MCQ, CoveragePlan, MCQBatch, TopicAllocation
-from pdf2anki.workflow import _batches, generate_deck
+from pdf2anki.workflow import (
+    _batches,
+    generate_deck,
+    shuffle_all_mcqs,
+    shuffle_mcq_options,
+)
 
 
 def _mcq(qid: str, topic: str, bad: bool = False) -> MCQ:
@@ -32,6 +37,61 @@ def test_batches_splits_evenly() -> None:
     assert _batches(0, 10) == []
     assert _batches(10, 10) == [10]
     assert sum(_batches(500, 10)) == 100
+
+
+def _mcq_abcd(qid: str) -> MCQ:
+    """MCQ whose correct answer is the content 'A' at position 0."""
+    return MCQ(
+        id=qid,
+        learning_objective="obj",
+        topic="topic",
+        stem="Stem?",
+        options=["A", "B", "C", "D"],
+        correct_index=0,
+        explanation="Because A.",
+        source_pages=[1],
+    )
+
+
+def test_shuffle_preserves_correct_answer_content() -> None:
+    original = _mcq_abcd("q1")
+    correct_text = original.options[original.correct_index]
+    shuffled = shuffle_mcq_options(original, seed_key="seed:q1")
+    assert sorted(shuffled.options) == sorted(original.options)
+    assert shuffled.options[shuffled.correct_index] == correct_text
+
+
+def test_shuffle_is_deterministic_for_same_seed() -> None:
+    a = shuffle_mcq_options(_mcq_abcd("q1"), seed_key="seed:q1")
+    b = shuffle_mcq_options(_mcq_abcd("q1"), seed_key="seed:q1")
+    assert a.options == b.options
+    assert a.correct_index == b.correct_index
+
+
+def test_shuffle_varies_correct_letter_across_questions() -> None:
+    mcqs = [_mcq_abcd(f"q{i}") for i in range(12)]
+    shuffled = shuffle_all_mcqs(mcqs)
+    for m in shuffled:
+        assert m.options[m.correct_index] == "A"
+    positions = {m.correct_index for m in shuffled}
+    # The correct answer must not land in a single fixed position every time.
+    assert len(positions) > 1
+
+
+def test_shuffle_leaves_invalid_mcq_untouched() -> None:
+    bad = MCQ(
+        id="bad",
+        learning_objective="obj",
+        topic="topic",
+        stem="Stem?",
+        options=["only", "three", "options"],
+        correct_index=0,
+        explanation="e",
+        source_pages=[1],
+    )
+    result = shuffle_mcq_options(bad, seed_key="seed:bad")
+    assert result.options == bad.options
+    assert result.correct_index == bad.correct_index
 
 
 def test_generate_deck_runs_two_passes() -> None:

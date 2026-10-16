@@ -2,12 +2,47 @@
 
 from __future__ import annotations
 
+import hashlib
+import random
 from dataclasses import dataclass, field
 
 from .anthropic_client import AnthropicClient
 from .config import MAX_QUESTIONS, QUESTIONS_PER_BATCH
 from .schemas import MCQ, CoveragePlan
 from .validators import ValidationResult, filter_valid_mcqs, validate_mcq
+
+
+def shuffle_mcq_options(mcq: MCQ, seed_key: str) -> MCQ:
+    """Return a copy of the MCQ with options deterministically permuted.
+
+    The correct answer is tracked by content, so ``correct_index`` is rewritten
+    to the shuffled position. The permutation is derived deterministically from
+    ``seed_key`` so it is stable across reruns. MCQs that are structurally
+    invalid (not exactly four options, or an out-of-range index) are returned
+    unchanged.
+    """
+    if len(mcq.options) != 4 or not (0 <= mcq.correct_index <= 3):
+        return mcq
+    correct_text = mcq.options[mcq.correct_index]
+    digest = hashlib.sha256(seed_key.encode()).hexdigest()
+    rng = random.Random(digest)
+    order = list(range(len(mcq.options)))
+    rng.shuffle(order)
+    new_options = [mcq.options[i] for i in order]
+    try:
+        new_index = new_options.index(correct_text)
+    except ValueError:  # pragma: no cover - defensive
+        return mcq
+    return mcq.model_copy(
+        update={"options": new_options, "correct_index": new_index}
+    )
+
+
+def shuffle_all_mcqs(mcqs: list[MCQ], seed_prefix: str = "") -> list[MCQ]:
+    """Deterministically shuffle options for every MCQ, seeded by its id."""
+    return [
+        shuffle_mcq_options(mcq, f"{seed_prefix}:{mcq.id}") for mcq in mcqs
+    ]
 
 
 @dataclass
@@ -101,6 +136,7 @@ def generate_deck(
         raise RuntimeError("; ".join(batch_errors))
 
     valid, rejected = filter_valid_mcqs(all_mcqs, page_count)
+    valid = shuffle_all_mcqs(valid)
     return GenerationResult(
         plan=plan,
         mcqs=valid,
