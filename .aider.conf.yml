@@ -1,19 +1,20 @@
 model: anthropic/claude-opus-4-8
 architect: true
 
-editor-model: openai/gpt-5.6
+editor-model: gemini/gemini-4-argon
 editor-edit-format: editor-diff
 
 weak-model: anthropic/claude-haiku-4-5
 
 map-tokens: 2048
 gitignore: false
+model-settings-file: .aider.model.settings.yml
 
 alias:
   - "architect:anthropic/claude-opus-4-8"
-  - "programmer:openai/gpt-5.6"
+  - "programmer:gemini/gemini-4-argon"
   - "grunt:deepseek/deepseek-v4-flash"
-  - "reviewer:gemini/gemini-4-argon"
+  - "reviewer:openai/gpt-5.6"
 
 auto-lint: true
 auto-test: false
