@@ -14,7 +14,12 @@ from pdf2anki.config import (
     MAX_QUESTIONS,
     load_settings,
 )
-from pdf2anki.pdf_media import PDFValidationError, render_crop, validate_pdf
+from pdf2anki.pdf_media import (
+    PDFValidationError,
+    count_page_images,
+    render_crop,
+    validate_pdf,
+)
 from pdf2anki.schemas import MCQ, ImageCrop
 from pdf2anki.validators import validate_mcq
 from pdf2anki.workflow import generate_deck, regenerate_single_mcq
@@ -34,6 +39,32 @@ def _parse_pages(raw: str) -> tuple[list[int], str | None]:
             bad_tokens.append(token)
     error = "Source pages must be integers." if bad_tokens else None
     return sorted(set(pages)), error
+
+
+def _autoselect_images(mcqs: list[MCQ], pdf_bytes: bytes, page_count: int) -> None:
+    """Preselect images for generated MCQs whose source page has a real figure.
+
+    Mutates the list in place. Only fills in defaults when the model did not
+    already request an image, so manual/model choices are preserved.
+    """
+    for i, mcq in enumerate(mcqs):
+        if mcq.image_required:
+            continue
+        effective_page = (
+            mcq.image_page
+            if mcq.image_page is not None
+            else (mcq.source_pages[0] if mcq.source_pages else None)
+        )
+        if effective_page is None or not (1 <= effective_page <= page_count):
+            continue
+        try:
+            has_image = count_page_images(pdf_bytes, effective_page) >= 1
+        except (ValueError, RuntimeError):
+            has_image = False
+        if has_image:
+            mcqs[i] = mcq.model_copy(
+                update={"image_required": True, "image_page": effective_page}
+            )
 
 
 def _render_editor(
@@ -320,8 +351,10 @@ def main() -> None:
                     page_count=pages,
                     max_questions=max_questions,
                 )
+            generated = list(result.mcqs)
+            _autoselect_images(generated, data, pages)
             st.session_state["plan"] = result.plan
-            st.session_state["mcqs"] = list(result.mcqs)
+            st.session_state["mcqs"] = generated
             st.session_state["rejected"] = list(result.rejected)
             st.session_state["batch_errors"] = list(result.batch_errors)
             st.session_state["pdf_hash"] = pdf_info.pdf_hash
