@@ -170,12 +170,15 @@ class AnthropicClient:
         count: int,
         learner_level: str,
         id_prefix: str,
+        focus_pages: list[int] | None = None,
     ) -> MCQBatch:
         """Run Pass 2 for a single topic batch and return validated MCQs."""
         scaled_tokens = min(16384, max(2048, 1200 + 800 * max(1, count)))
         return self._parse(
             system=MCQ_SYSTEM_PROMPT,
-            user_text=mcq_user_prompt(topic, count, learner_level, id_prefix),
+            user_text=mcq_user_prompt(
+                topic, count, learner_level, id_prefix, focus_pages
+            ),
             file_id=file_id,
             schema=MCQBatch,
             max_tokens=scaled_tokens,

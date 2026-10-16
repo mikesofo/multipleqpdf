@@ -113,6 +113,22 @@ def make_pdf_with_nearby_and_far_images(
     return doc.tobytes()
 
 
+def make_pdf_with_toc(pages: int = 6) -> bytes:
+    """Create a PDF with a 3-chapter top-level outline (chapters at 1, 3, 5)."""
+    doc = fitz.open()
+    for i in range(pages):
+        page = doc.new_page(width=200, height=200)
+        page.insert_text((20, 40), f"Page {i + 1} content")
+    toc = [
+        [1, "Introduction", 1],
+        [2, "Intro subsection", 2],
+        [1, "Methods", 3],
+        [1, "Results", 5],
+    ]
+    doc.set_toc(toc)
+    return doc.tobytes()
+
+
 @pytest.fixture
 def pdf_factory() -> Callable[..., bytes]:
     """Return a factory function that builds test PDFs."""

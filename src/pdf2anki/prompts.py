@@ -34,17 +34,33 @@ def coverage_user_prompt(max_questions: int) -> str:
     )
 
 
+def _format_page_focus(focus_pages: list[int] | None) -> str:
+    """Return a human-readable page-focus clause, or empty string."""
+    if not focus_pages:
+        return ""
+    pages = sorted(set(focus_pages))
+    preview = ", ".join(str(p) for p in pages[:40])
+    more = "" if len(pages) <= 40 else ", ..."
+    return (
+        "Focus only on the selected chapter pages (1-based): "
+        f"{preview}{more}. Cite source_pages only from these pages.\n\n"
+    )
+
+
 def mcq_user_prompt(
     topic: str,
     count: int,
     learner_level: str,
     id_prefix: str,
+    focus_pages: list[int] | None = None,
 ) -> str:
     """Return the Pass 2 user prompt text for a single topic batch."""
     return (
         f"Using only the attached PDF, write exactly {count} single-best-answer "
         f"multiple-choice questions about the topic: {topic}.\n\n"
         f"Target learner level: {learner_level}.\n\n"
+        + _format_page_focus(focus_pages)
+        +
         "Rules for every question:\n"
         "- Provide exactly four non-empty, distinct options.\n"
         "- Exactly one option is correct; set correct_index to 0-3.\n"

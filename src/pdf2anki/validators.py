@@ -15,8 +15,16 @@ class ValidationResult:
     errors: list[str] = field(default_factory=list)
 
 
-def validate_mcq(mcq: MCQ, page_count: int) -> ValidationResult:
-    """Validate a single MCQ against structural and grounding rules."""
+def validate_mcq(
+    mcq: MCQ,
+    page_count: int,
+    allowed_pages: set[int] | None = None,
+) -> ValidationResult:
+    """Validate a single MCQ against structural and grounding rules.
+
+    When ``allowed_pages`` is provided, every cited source page must fall inside
+    that set (used to restrict generation to selected chapter ranges).
+    """
     errors: list[str] = []
 
     options = [o.strip() for o in mcq.options]
@@ -43,6 +51,10 @@ def validate_mcq(mcq: MCQ, page_count: int) -> ValidationResult:
     for page in mcq.source_pages:
         if page < 1 or page > page_count:
             errors.append(f"Source page {page} is out of range (1-{page_count}).")
+        elif allowed_pages is not None and page not in allowed_pages:
+            errors.append(
+                f"Source page {page} is outside the selected chapter range."
+            )
 
     if mcq.image_required:
         if mcq.image_page is None:
@@ -61,13 +73,15 @@ def validate_mcq(mcq: MCQ, page_count: int) -> ValidationResult:
 
 
 def filter_valid_mcqs(
-    mcqs: list[MCQ], page_count: int
+    mcqs: list[MCQ],
+    page_count: int,
+    allowed_pages: set[int] | None = None,
 ) -> tuple[list[MCQ], list[tuple[MCQ, ValidationResult]]]:
     """Split MCQs into valid ones and rejected ones with their results."""
     valid: list[MCQ] = []
     rejected: list[tuple[MCQ, ValidationResult]] = []
     for mcq in mcqs:
-        result = validate_mcq(mcq, page_count)
+        result = validate_mcq(mcq, page_count, allowed_pages=allowed_pages)
         if result.is_valid:
             valid.append(mcq)
         else:

@@ -80,12 +80,16 @@ def generate_deck(
     page_count: int,
     max_questions: int,
     batch_size: int = QUESTIONS_PER_BATCH,
+    allowed_pages: set[int] | None = None,
 ) -> GenerationResult:
     """Run Pass 1 and Pass 2 and return validated questions.
 
-    The caller owns the uploaded file lifecycle and remote cleanup.
+    The caller owns the uploaded file lifecycle and remote cleanup. When
+    ``allowed_pages`` is given, generated questions are steered to and validated
+    against that page set (selected chapter ranges).
     """
     max_questions = min(max_questions, MAX_QUESTIONS)
+    focus_pages = sorted(allowed_pages) if allowed_pages else None
     plan = client.plan_coverage(file_id, max_questions)
 
     all_mcqs: list[MCQ] = []
@@ -116,6 +120,7 @@ def generate_deck(
                     count=size,
                     learner_level=plan.learner_level,
                     id_prefix=id_prefix,
+                    focus_pages=focus_pages,
                 )
             except Exception as exc:
                 batch_errors.append(f"Batch '{topic}' #{b_index + 1} failed: {exc}")
@@ -135,7 +140,9 @@ def generate_deck(
     if not all_mcqs and batch_errors:
         raise RuntimeError("; ".join(batch_errors))
 
-    valid, rejected = filter_valid_mcqs(all_mcqs, page_count)
+    valid, rejected = filter_valid_mcqs(
+        all_mcqs, page_count, allowed_pages=allowed_pages
+    )
     valid = shuffle_all_mcqs(valid)
     return GenerationResult(
         plan=plan,

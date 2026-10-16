@@ -38,6 +38,61 @@ class PDFInfo:
     size_bytes: int
 
 
+@dataclass(frozen=True)
+class Chapter:
+    """A top-level outline chapter with an inclusive 1-based page range."""
+
+    title: str
+    start_page: int
+    end_page: int
+
+    @property
+    def pages(self) -> set[int]:
+        """Return the inclusive set of 1-based page numbers in this chapter."""
+        return set(range(self.start_page, self.end_page + 1))
+
+
+def extract_chapters(pdf_bytes: bytes) -> list[Chapter]:
+    """Derive top-level (level-1) chapters from the PDF outline/TOC.
+
+    Returns an empty list when the document has no usable outline, so callers
+    can fall back to whole-document behavior. Chapter page ranges are inclusive
+    and 1-based; each chapter runs until the page before the next level-1 entry
+    (or the final page for the last chapter).
+    """
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        page_count = doc.page_count
+        try:
+            toc = doc.get_toc(simple=True)
+        except Exception:
+            return []
+
+    starts: list[tuple[str, int]] = []
+    for entry in toc:
+        if len(entry) < 3:
+            continue
+        level, title, page = entry[0], entry[1], entry[2]
+        if level != 1:
+            continue
+        if not isinstance(page, int) or page < 1 or page > page_count:
+            continue
+        starts.append((str(title).strip() or f"Chapter {len(starts) + 1}", page))
+
+    if not starts:
+        return []
+
+    # Ensure start pages are non-decreasing in document order.
+    chapters: list[Chapter] = []
+    for i, (title, start) in enumerate(starts):
+        if i + 1 < len(starts):
+            next_start = starts[i + 1][1]
+            end = max(start, next_start - 1)
+        else:
+            end = page_count
+        chapters.append(Chapter(title=title, start_page=start, end_page=end))
+    return chapters
+
+
 def compute_pdf_hash(data: bytes) -> str:
     """Return a short deterministic hex digest for the PDF bytes."""
     return hashlib.sha256(data).hexdigest()[:16]

@@ -154,6 +154,39 @@ def test_generate_deck_filters_invalid() -> None:
     assert [m.id for m, _ in result.rejected] == ["bad"]
 
 
+def test_generate_deck_respects_allowed_pages() -> None:
+    plan = CoveragePlan(
+        title="T",
+        subject="S",
+        learner_level="student",
+        question_count=2,
+        allocation=[TopicAllocation(topic="Alpha", question_count=2)],
+    )
+    client = MagicMock()
+    client.plan_coverage.return_value = plan
+    # One question cites an in-range page (3), one cites out-of-range (1).
+    in_range = _mcq("inrange", "Alpha")
+    in_range.source_pages = [3]
+    out_range = _mcq("outrange", "Alpha")
+    out_range.source_pages = [1]
+    client.generate_mcqs.return_value = MCQBatch(questions=[in_range, out_range])
+
+    result = generate_deck(
+        client=client,
+        file_id="f",
+        page_count=10,
+        max_questions=10,
+        batch_size=10,
+        allowed_pages={3, 4},
+    )
+
+    assert [m.id for m in result.mcqs] == ["inrange"]
+    assert [m.id for m, _ in result.rejected] == ["outrange"]
+    # focus_pages must be forwarded to the generation call.
+    _, kwargs = client.generate_mcqs.call_args
+    assert kwargs["focus_pages"] == [3, 4]
+
+
 def test_generate_deck_without_allocation_uses_subject() -> None:
     plan = CoveragePlan(
         title="T",

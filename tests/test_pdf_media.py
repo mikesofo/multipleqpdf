@@ -8,6 +8,7 @@ from conftest import (
     make_pdf_with_captioned_image,
     make_pdf_with_image,
     make_pdf_with_nearby_and_far_images,
+    make_pdf_with_toc,
     make_pdf_with_two_images,
 )
 from conftest import make_sample_pdf as _make_pdf
@@ -15,6 +16,7 @@ from pdf2anki.pdf_media import (
     PDFValidationError,
     best_image_crop_for_text,
     count_page_images,
+    extract_chapters,
     largest_image_crop,
     media_filename,
     render_crop,
@@ -248,3 +250,25 @@ def test_select_image_crop_no_fallback_with_multiple_unanchored_images() -> None
 def test_select_image_crop_none_on_text_only_page() -> None:
     data = _make_pdf(pages=1)
     assert select_image_crop(data, 1, "Page 1 content") is None
+
+
+def test_extract_chapters_from_toc() -> None:
+    data = make_pdf_with_toc(pages=6)
+    chapters = extract_chapters(data)
+    titles = [c.title for c in chapters]
+    assert titles == ["Introduction", "Methods", "Results"]
+
+
+def test_chapter_ranges_computed_from_successive_entries() -> None:
+    data = make_pdf_with_toc(pages=6)
+    chapters = extract_chapters(data)
+    ranges = [(c.start_page, c.end_page) for c in chapters]
+    # Level-1 entries start at 1, 3, 5; level-2 entry is ignored.
+    assert ranges == [(1, 2), (3, 4), (5, 6)]
+    assert chapters[0].pages == {1, 2}
+    assert chapters[2].pages == {5, 6}
+
+
+def test_extract_chapters_empty_without_toc() -> None:
+    data = _make_pdf(pages=3)
+    assert extract_chapters(data) == []

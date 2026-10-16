@@ -16,6 +16,7 @@ from pdf2anki.config import (
 )
 from pdf2anki.pdf_media import (
     PDFValidationError,
+    extract_chapters,
     render_crop,
     select_image_crop,
     validate_pdf,
@@ -352,6 +353,28 @@ def main() -> None:
     pages = pdf_info.page_count
     st.success(f"PDF accepted: {pages} page(s), {len(data) // 1024} KB.")
 
+    chapters = extract_chapters(data)
+    selected_pages: set[int] | None = None
+    if chapters:
+        st.subheader("Chapters detected")
+        labels = [
+            f"{c.title} (pp. {c.start_page}-{c.end_page})" for c in chapters
+        ]
+        chosen = st.multiselect(
+            "Select chapters to generate questions from "
+            "(leave empty to use the whole document)",
+            options=list(range(len(chapters))),
+            format_func=lambda i: labels[i],
+        )
+        if chosen:
+            selected_pages = set()
+            for i in chosen:
+                selected_pages |= chapters[i].pages
+            st.caption(
+                f"Selected {len(chosen)} chapter(s), "
+                f"{len(selected_pages)} page(s)."
+            )
+
     client: AnthropicClient | None = None
     if settings.anthropic_api_key:
         try:
@@ -378,6 +401,7 @@ def main() -> None:
                     file_id=file_id,
                     page_count=pages,
                     max_questions=max_questions,
+                    allowed_pages=selected_pages,
                 )
             generated = list(result.mcqs)
             _autoselect_images(generated, data, pages)
