@@ -94,3 +94,15 @@ class FigureRerankResult(BaseModel):
 
     items: list[FigureRerankItem] = Field(default_factory=list)
     final_selected_candidate_id: str | None = None
+
+
+class FigureBundle(BaseModel):
+    """Deterministically extracted figure bundle with caption, crop, and context."""
+
+    figure_id: str
+    figure_label: str = ""
+    caption_text: str
+    page_number: int = Field(ge=1)
+    image_crop: ImageCrop | None = None
+    nearby_text: str = ""
+    references: list[str] = Field(default_factory=list)

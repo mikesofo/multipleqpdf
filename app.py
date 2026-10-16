@@ -28,7 +28,11 @@ from pdf2anki.pdf_media import (
 )
 from pdf2anki.schemas import MCQ, ImageCrop
 from pdf2anki.validators import validate_mcq
-from pdf2anki.workflow import generate_deck, regenerate_single_mcq
+from pdf2anki.workflow import (
+    generate_deck,
+    generate_figure_grounded_deck,
+    regenerate_single_mcq,
+)
 
 
 def _parse_pages(raw: str) -> tuple[list[int], str | None]:
@@ -413,6 +417,14 @@ def main() -> None:
             "cause repetitive questions."
         )
 
+    gen_mode = st.radio(
+        "Generation mode",
+        options=["Text-based", "Figure-grounded"],
+        index=0,
+        horizontal=True,
+        key="generation_mode",
+    )
+
     client: AnthropicClient | None = None
     if settings.anthropic_api_key:
         try:
@@ -434,19 +446,30 @@ def main() -> None:
             with st.spinner("Uploading PDF to Claude..."):
                 file_id = client.upload_pdf(data, uploaded.name)
             with st.spinner("Planning coverage and generating questions..."):
-                result = generate_deck(
-                    client=client,
-                    file_id=file_id,
-                    page_count=pages,
-                    max_questions=max_questions,
-                    allowed_pages=selected_pages,
-                )
+                if gen_mode == "Figure-grounded":
+                    result = generate_figure_grounded_deck(
+                        client=client,
+                        file_id=file_id,
+                        pdf_bytes=data,
+                        page_count=pages,
+                        max_questions=max_questions,
+                        allowed_pages=selected_pages,
+                    )
+                else:
+                    result = generate_deck(
+                        client=client,
+                        file_id=file_id,
+                        page_count=pages,
+                        max_questions=max_questions,
+                        allowed_pages=selected_pages,
+                    )
             generated = list(result.mcqs)
             _autoselect_images(generated, data, pages, client=client)
             st.session_state["plan"] = result.plan
             st.session_state["mcqs"] = generated
             st.session_state["rejected"] = list(result.rejected)
             st.session_state["batch_errors"] = list(result.batch_errors)
+            st.session_state["no_captioned_figures"] = result.no_captioned_figures
             st.session_state["pdf_hash"] = pdf_info.pdf_hash
             st.session_state.pop("apkg_bytes", None)
         except Exception as exc:  # pragma: no cover - UI path
@@ -464,6 +487,9 @@ def main() -> None:
 
     if st.session_state.get("pdf_hash") != pdf_info.pdf_hash:
         return
+
+    if st.session_state.get("no_captioned_figures"):
+        st.info("No captioned figures or photos were found in the selected PDF pages.")
 
     plan = st.session_state.get("plan")
     if plan is not None:

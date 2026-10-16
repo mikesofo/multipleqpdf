@@ -9,13 +9,15 @@ from .config import SUPPORTED_MODELS
 from .pdf_media import validate_pdf
 from .prompts import (
     COVERAGE_SYSTEM_PROMPT,
+    FIGURE_GROUNDED_SYSTEM_PROMPT,
     FIGURE_RERANK_SYSTEM_PROMPT,
     MCQ_SYSTEM_PROMPT,
     coverage_user_prompt,
+    figure_grounded_user_prompt,
     figure_rerank_user_prompt,
     mcq_user_prompt,
 )
-from .schemas import CoveragePlan, FigureRerankResult, MCQBatch
+from .schemas import CoveragePlan, FigureBundle, FigureRerankResult, MCQBatch
 
 logger = logging.getLogger("pdf2anki.anthropic")
 
@@ -295,6 +297,24 @@ class AnthropicClient:
             user_text=mcq_user_prompt(
                 topic, count, learner_level, id_prefix, focus_pages
             ),
+            file_id=file_id,
+            schema=MCQBatch,
+            max_tokens=scaled_tokens,
+            cache=True,
+        )
+
+    def generate_figure_mcqs(
+        self,
+        file_id: str,
+        bundle: FigureBundle,
+        count: int = 1,
+        id_prefix: str = "fig-",
+    ) -> MCQBatch:
+        """Generate MCQs grounded directly in a single extracted FigureBundle."""
+        scaled_tokens = min(16384, max(2048, 1200 + 800 * max(1, count)))
+        return self._parse(
+            system=FIGURE_GROUNDED_SYSTEM_PROMPT,
+            user_text=figure_grounded_user_prompt(bundle, count, id_prefix),
             file_id=file_id,
             schema=MCQBatch,
             max_tokens=scaled_tokens,

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import pymupdf as fitz
 
 from .config import ACCEPTED_MIME_TYPE, MAX_PDF_BYTES, MAX_PDF_PAGES
-from .schemas import ImageCrop
+from .schemas import FigureBundle, ImageCrop
 
 DEFAULT_DPI: int = 180
 MIN_IMAGE_DIMENSION: int = 64
@@ -525,6 +525,106 @@ def extract_figure_metadata(
                 )
             )
         return metas
+
+
+def _nearby_text_for_image(
+    page: fitz.Page, image_rect: fitz.Rect, caption_text: str
+) -> str:
+    """Gather text blocks within a vertical band around the image."""
+    band = 0.25 * page.rect.height
+    y_min = image_rect.y0 - band
+    y_max = image_rect.y1 + band
+    snippets: list[str] = []
+    try:
+        blocks = page.get_text("blocks")
+    except Exception:
+        return ""
+    for b in blocks:
+        if len(b) < 5:
+            continue
+        bx0, by0, bx1, by1, text = b[0], b[1], b[2], b[3], str(b[4]).strip()
+        if not text:
+            continue
+        if caption_text and caption_text in text:
+            continue
+        if by1 >= y_min and by0 <= y_max and bx1 > bx0:
+            clean = " ".join(text.split())
+            if clean:
+                snippets.append(clean)
+    return " ".join(snippets)[:800]
+
+
+def _collect_label_references(doc: fitz.Document, label: str) -> list[str]:
+    """Find sentences across the document that explicitly reference `label`."""
+    if not label:
+        return []
+    refs: list[str] = []
+    seen: set[str] = set()
+    for p_idx in range(doc.page_count):
+        try:
+            text = doc[p_idx].get_text("text")
+        except Exception:
+            continue
+        for sent in re.split(r"(?<=[.!?])\s+|\n+", text):
+            clean = " ".join(sent.split()).strip()
+            if not clean or clean in seen:
+                continue
+            if label in _normalize_figure_refs(clean):
+                seen.add(clean)
+                refs.append(clean)
+                if len(refs) >= 6:
+                    return refs
+    return refs
+
+
+def extract_figure_bundles(
+    pdf_bytes: bytes,
+    allowed_pages: set[int] | None = None,
+    min_dim: int = MIN_IMAGE_DIMENSION,
+    margin: float = 0.03,
+) -> list[FigureBundle]:
+    """Deterministically extract captioned figure bundles across the PDF.
+
+    Only images with an adjacent caption are included. Returns an empty list
+    when no captioned figures exist on the inspected pages.
+    """
+    bundles: list[FigureBundle] = []
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        for p_idx in range(doc.page_count):
+            page_num = p_idx + 1
+            if allowed_pages is not None and page_num not in allowed_pages:
+                continue
+            page = doc[p_idx]
+            prect = page.rect
+            cap_rects, cap_texts = _caption_lines(page)
+            if not cap_rects:
+                continue
+            img_idx = 0
+            for r in _candidate_image_rects(doc, page, min_dim=min_dim):
+                caption = _nearest_caption_for_image(
+                    r, cap_rects, cap_texts, prect
+                )
+                if not caption:
+                    continue
+                img_idx += 1
+                labels = _normalize_figure_refs(caption)
+                label = sorted(labels)[0] if labels else ""
+                crop = _rect_to_crop(r, prect, margin)
+                nearby = _nearby_text_for_image(page, r, caption)
+                references = _collect_label_references(doc, label)
+                fig_id = f"fig_p{page_num}_{img_idx}"
+                bundles.append(
+                    FigureBundle(
+                        figure_id=fig_id,
+                        figure_label=label,
+                        caption_text=caption,
+                        page_number=page_num,
+                        image_crop=crop,
+                        nearby_text=nearby,
+                        references=references,
+                    )
+                )
+    return bundles
 
 
 def find_image_crop_by_reference(

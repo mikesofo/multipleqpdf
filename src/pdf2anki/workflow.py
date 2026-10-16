@@ -8,7 +8,8 @@ from dataclasses import dataclass, field
 
 from .anthropic_client import AnthropicClient
 from .config import MAX_QUESTIONS, QUESTIONS_PER_BATCH
-from .schemas import MCQ, CoveragePlan
+from .pdf_media import extract_figure_bundles
+from .schemas import MCQ, CoveragePlan, FigureBundle
 from .validators import ValidationResult, filter_valid_mcqs, validate_mcq
 
 
@@ -53,6 +54,8 @@ class GenerationResult:
     mcqs: list[MCQ] = field(default_factory=list)
     rejected: list[tuple[MCQ, ValidationResult]] = field(default_factory=list)
     batch_errors: list[str] = field(default_factory=list)
+    figure_bundles: list[FigureBundle] = field(default_factory=list)
+    no_captioned_figures: bool = False
 
 
 def _batches(count: int, size: int) -> list[int]:
@@ -178,6 +181,106 @@ def generate_deck(
         mcqs=valid,
         rejected=rejected,
         batch_errors=batch_errors,
+    )
+
+
+def generate_figure_grounded_deck(
+    client: AnthropicClient,
+    file_id: str,
+    pdf_bytes: bytes,
+    page_count: int,
+    max_questions: int = MAX_QUESTIONS,
+    allowed_pages: set[int] | None = None,
+) -> GenerationResult:
+    """Extract captioned figure bundles and generate MCQs grounded per figure."""
+    bundles = extract_figure_bundles(pdf_bytes, allowed_pages=allowed_pages)
+    if not bundles:
+        empty_plan = CoveragePlan(
+            title="Figure-Grounded Deck",
+            subject="Visuals",
+            learner_level="student",
+            question_count=0,
+        )
+        return GenerationResult(
+            plan=empty_plan,
+            mcqs=[],
+            rejected=[],
+            batch_errors=[],
+            figure_bundles=[],
+            no_captioned_figures=True,
+        )
+
+    capped_total = min(max(1, max_questions), MAX_QUESTIONS)
+    selected_bundles = bundles[:capped_total]
+    weights = [1.0] * len(selected_bundles)
+    counts = distribute_total(capped_total, weights)
+
+    all_mcqs: list[MCQ] = []
+    batch_errors: list[str] = []
+    seen_ids: set[str] = set()
+    counter = 0
+
+    for idx, (bundle, count) in enumerate(
+        zip(selected_bundles, counts, strict=True)
+    ):
+        if count <= 0:
+            continue
+        id_prefix = f"{bundle.figure_id}-"
+        try:
+            batch = client.generate_figure_mcqs(
+                file_id=file_id,
+                bundle=bundle,
+                count=count,
+                id_prefix=id_prefix,
+            )
+        except Exception as exc:
+            batch_errors.append(
+                f"Figure bundle '{bundle.figure_id}' (#{idx + 1}) failed: {exc}"
+            )
+            continue
+
+        for mcq in batch.questions:
+            counter += 1
+            candidate_id = mcq.id.strip() or f"{id_prefix}{counter}"
+            while candidate_id in seen_ids:
+                candidate_id = f"{id_prefix}{counter}"
+                counter += 1
+            seen_ids.add(candidate_id)
+            stamped = mcq.model_copy(
+                update={
+                    "id": candidate_id,
+                    "source_pages": [bundle.page_number],
+                    "source_support": mcq.source_support or bundle.caption_text,
+                    "image_required": True,
+                    "image_page": bundle.page_number,
+                    "image_crop": bundle.image_crop,
+                    "image_alt_text": mcq.image_alt_text or bundle.caption_text,
+                }
+            )
+            all_mcqs.append(stamped)
+
+    if not all_mcqs and batch_errors:
+        raise RuntimeError("; ".join(batch_errors))
+
+    valid, rejected = filter_valid_mcqs(
+        all_mcqs, page_count, allowed_pages=allowed_pages
+    )
+    valid = shuffle_all_mcqs(valid)
+    plan = CoveragePlan(
+        title="Figure-Grounded Deck",
+        subject="Visual Figures",
+        learner_level="student",
+        topics=[b.figure_label or b.figure_id for b in selected_bundles],
+        question_count=len(valid),
+        visual_pages=sorted({b.page_number for b in selected_bundles}),
+    )
+    return GenerationResult(
+        plan=plan,
+        mcqs=valid,
+        rejected=rejected,
+        batch_errors=batch_errors,
+        figure_bundles=selected_bundles,
+        no_captioned_figures=False,
     )
 
 
